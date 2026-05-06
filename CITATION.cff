@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: "Sansad Semantic Crawler"
+message: >-
+  If you use this software in academic work, journalism, policy
+  research, or any other public-facing analysis, please cite both this
+  package and the parliamentary records it crawls. The records are
+  public documents of the Parliament of India, hosted on
+  elibrary.sansad.in (Lok Sabha) and rsdoc.nic.in (Rajya Sabha).
+type: software
+authors:
+  - name: "CommonSense LLP"
+license: PolyForm-Noncommercial-1.0.0
+repository-code: "https://github.com/CommonSenseLLP/sansad-semantic-crawler"
+keywords:
+  - parliament-of-india
+  - lok-sabha
+  - rajya-sabha
+  - parliamentary-questions
+  - public-records
+  - semantic-crawler
+  - public-interest-research
+  - civic-tech
+preferred-citation:
+  type: software
+  title: "Sansad Semantic Crawler — a config-driven crawler for Indian parliamentary questions."
+  authors:
+    - name: "CommonSense LLP"
+  url: "https://github.com/CommonSenseLLP/sansad-semantic-crawler"
+  year: 2026
+  version: "0.1.0"
