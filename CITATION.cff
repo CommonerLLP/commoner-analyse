@@ -8,9 +8,9 @@ message: >-
   elibrary.sansad.in (Lok Sabha) and rsdoc.nic.in (Rajya Sabha).
 type: software
 authors:
-  - name: "CommonSense LLP"
+  - name: "Commoner LLP"
 license: PolyForm-Noncommercial-1.0.0
-repository-code: "https://github.com/CommonSenseLLP/sansad-semantic-crawler"
+repository-code: "https://github.com/CommonerLLP/sansad-semantic-crawler"
 keywords:
   - parliament-of-india
   - lok-sabha
@@ -24,7 +24,7 @@ preferred-citation:
   type: software
   title: "Sansad Semantic Crawler — a config-driven crawler for Indian parliamentary questions."
   authors:
-    - name: "CommonSense LLP"
-  url: "https://github.com/CommonSenseLLP/sansad-semantic-crawler"
+    - name: "Commoner LLP"
+  url: "https://github.com/CommonerLLP/sansad-semantic-crawler"
   year: 2026
   version: "0.2.0"
