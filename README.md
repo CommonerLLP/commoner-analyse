@@ -35,20 +35,20 @@ The package is not on PyPI yet (publication is planned for a future
 release). Install directly from the GitHub release tag:
 
 ```bash
-pip install "sansad-semantic-crawler @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0"
+pip install "sansad-semantic-crawler @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0"
 
 # Optional extras (pick what you need):
-pip install "sansad-semantic-crawler[http] @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0"           # use `requests` instead of stdlib `urllib`
-pip install "sansad-semantic-crawler[pdf] @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0"            # pdfminer.six fallback
-pip install "sansad-semantic-crawler[embeddings] @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0"     # Sentence Transformers models
-pip install "sansad-semantic-crawler[llm] @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0"            # local chat-completions model-server tagging
-pip install "sansad-semantic-crawler[all] @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0"            # all optional integrations
+pip install "sansad-semantic-crawler[http] @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0"           # use `requests` instead of stdlib `urllib`
+pip install "sansad-semantic-crawler[pdf] @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0"            # pdfminer.six fallback
+pip install "sansad-semantic-crawler[embeddings] @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0"     # Sentence Transformers models
+pip install "sansad-semantic-crawler[llm] @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0"            # local chat-completions model-server tagging
+pip install "sansad-semantic-crawler[all] @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0"            # all optional integrations
 ```
 
 For a project, pin the same line in your `requirements.txt`:
 
 ```text
-sansad-semantic-crawler[http,pdf] @ git+https://github.com/CommonSenseLLP/sansad-semantic-crawler.git@v0.2.0
+sansad-semantic-crawler[http,pdf] @ git+https://github.com/CommonerLLP/sansad-semantic-crawler.git@v0.2.0
 ```
 
 Once PyPI publication lands, `pip install sansad-semantic-crawler` will
@@ -302,7 +302,7 @@ contract. Planned for later releases:
 - Optional vector-store export for semantic retrieval workflows.
 
 If you're using the crawler and would like a particular extension,
-open an issue at the [repository](https://github.com/CommonSenseLLP/sansad-semantic-crawler/issues).
+open an issue at the [repository](https://github.com/CommonerLLP/sansad-semantic-crawler/issues).
 
 ## Licence
 
@@ -344,6 +344,6 @@ A `CITATION.cff` at the repository root carries machine-readable
 metadata; GitHub renders a "Cite this repository" button against it.
 The maintainer-recommended citation is:
 
-> CommonSense LLP. *Sansad Semantic Crawler — a config-driven crawler
+> Commoner LLP. *Sansad Semantic Crawler — a config-driven crawler
 > for Indian parliamentary questions.* 2026.
-> <https://github.com/CommonSenseLLP/sansad-semantic-crawler>.
+> <https://github.com/CommonerLLP/sansad-semantic-crawler>.
