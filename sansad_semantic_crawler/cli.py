@@ -3,10 +3,17 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .committees import CommitteeCrawler, resolve_committees
 from .export import build_summary, write_export
 from .sansad import SansadCrawler
 from .textparse import parse_corpus
 from .topics import load_topic
+
+
+def _split_csv(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    return [p.strip() for p in value.split(",") if p.strip()]
 
 
 def parse_session_range(value: str) -> list[int]:
@@ -58,6 +65,50 @@ def crawl_cmd(args: argparse.Namespace) -> None:
     crawler.log(f"DONE added={added} total={len(seen)}")
 
 
+def crawl_committees_cmd(args: argparse.Namespace) -> None:
+    topic = load_topic(args.topic, classifier_override=args.classifier)
+    out = Path(args.out)
+    if args.reset and (out / "manifest.jsonl").exists():
+        (out / "manifest.jsonl").unlink()
+    if args.reset and (out / "crawl.log").exists():
+        (out / "crawl.log").unlink()
+    effective_mode = args.classifier or topic.classifier_config.get("mode") or "regex"
+    crawler = CommitteeCrawler(
+        topic,
+        out,
+        sleep=args.sleep,
+        lok_sabha_no=args.lok_sabha_no,
+        topic_path=args.topic,
+        classifier_mode=effective_mode,
+    )
+    seen = crawler.load_seen()
+    requested = _split_csv(args.committees)
+    crawler.log(
+        f"resume seen={len(seen)} topic={topic.name} ls={args.lok_sabha_no} "
+        f"download={not args.no_download}"
+    )
+    added = 0
+    if args.house in ("both", "ls"):
+        added += crawler.crawl_ls(
+            seen,
+            committees=resolve_committees("ls", requested),
+            from_date=args.from_date,
+            to_date=args.to_date,
+            max_records=args.max_records,
+            download=not args.no_download,
+        )
+    if args.house in ("both", "rs"):
+        added += crawler.crawl_rs(
+            seen,
+            committees=resolve_committees("rs", requested),
+            from_date=args.from_date,
+            to_date=args.to_date,
+            max_records=args.max_records,
+            download=not args.no_download,
+        )
+    crawler.log(f"DONE added={added} total={len(seen)}")
+
+
 def parse_cmd(args: argparse.Namespace) -> None:
     topic = load_topic(args.topic, classifier_override=args.classifier)
     rows = parse_corpus(topic, Path(args.out), refresh_text=args.refresh_text)
@@ -92,6 +143,21 @@ def build_parser() -> argparse.ArgumentParser:
     crawl.add_argument("--no-download", action="store_true")
     crawl.add_argument("--reset", action="store_true")
     crawl.set_defaults(func=crawl_cmd)
+
+    cc = sub.add_parser("crawl-committees", help="Crawl standing-committee reports")
+    cc.add_argument("--topic", required=True, help="Path to topic profile JSON")
+    cc.add_argument("--classifier", choices=["regex", "embeddings", "llm", "ensemble"], help="Override profile classifier mode")
+    cc.add_argument("--out", required=True, help="Output corpus directory")
+    cc.add_argument("--house", choices=["both", "ls", "rs"], default="both")
+    cc.add_argument("--committees", help="Comma-separated committee slugs; default = all for the chosen house(s)")
+    cc.add_argument("--lok-sabha-no", type=int, default=18, help="Lok Sabha number for LS reports (default 18)")
+    cc.add_argument("--from-date")
+    cc.add_argument("--to-date")
+    cc.add_argument("--max-records", type=int, help="Smoke-test brake: stop after N new records per house crawl")
+    cc.add_argument("--sleep", type=float, default=0.25)
+    cc.add_argument("--no-download", action="store_true")
+    cc.add_argument("--reset", action="store_true")
+    cc.set_defaults(func=crawl_committees_cmd)
 
     parse = sub.add_parser("parse")
     parse.add_argument("--topic", required=True)
