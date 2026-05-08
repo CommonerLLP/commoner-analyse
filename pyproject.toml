@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Config-driven semantic crawler for Indian Parliament (Lok Sabha + Rajya Sabha) questions."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "CommonSense LLP" }]
+authors = [{ name = "Commoner LLP" }]
 license = { text = "PolyForm-Noncommercial-1.0.0" }
 keywords = [
   "parliament-of-india",
@@ -41,9 +41,9 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CommonSenseLLP/sansad-semantic-crawler"
-Source = "https://github.com/CommonSenseLLP/sansad-semantic-crawler"
-Issues = "https://github.com/CommonSenseLLP/sansad-semantic-crawler/issues"
+Homepage = "https://github.com/CommonerLLP/sansad-semantic-crawler"
+Source = "https://github.com/CommonerLLP/sansad-semantic-crawler"
+Issues = "https://github.com/CommonerLLP/sansad-semantic-crawler/issues"
 
 [project.scripts]
 sansad-crawl = "sansad_semantic_crawler.cli:main"
