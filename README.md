@@ -1,11 +1,20 @@
 # Sansad Semantic Crawler
 
-A self-contained, config-driven crawler for Indian Parliament questions —
-Lok Sabha and Rajya Sabha — across arbitrary topics. The package knows
-the Lok Sabha DSpace API (`elibrary.sansad.in`) and the Rajya Sabha
-question API (`rsdoc.nic.in`); the *topic logic* — what to search for,
-what to tag, what to keep — lives in JSON profiles, so other projects
-can add or extend subjects without editing crawler code.
+A self-contained, config-driven crawler for Indian Parliament — questions
+in Lok Sabha and Rajya Sabha, and standing-committee reports — across
+arbitrary topics. The package knows the Lok Sabha DSpace API
+(`elibrary.sansad.in`), the Rajya Sabha question API (`rsdoc.nic.in`),
+and the LS/RS committee-report APIs on `sansad.in`; the *topic logic* —
+what to search for, what to tag, what to keep — lives in JSON profiles,
+so other projects can add or extend subjects without editing crawler
+code.
+
+A topic profile is not a neutral filter. It is a theory of how Parliament
+speaks about a subject — which words show up, which ministries field the
+question, which language the analysis is conducted in. The crawler treats
+profiles as such: each crawl run hashes the profile and writes the hash
+alongside the records it produced, so a record cannot be read apart from
+the apparatus that produced it.
 
 The package was extracted from
 [whoseuniversity.org](https://whoseuniversity.org/)'s parliamentary
@@ -17,17 +26,51 @@ public-interest research; commercial use is not permitted (see
 
 - Crawls Lok Sabha questions from `elibrary.sansad.in`.
 - Crawls Rajya Sabha questions from `rsdoc.nic.in`.
-- Normalises both houses into one JSONL manifest with a stable composite
-  key (`LS|U|178|2024-11-25`) so re-running the crawler resumes
-  cleanly from where it left off.
-- Optionally downloads each answer's PDF.
+- Crawls standing-committee reports from `sansad.in/api_ls/committee/`
+  and `sansad.in/api_rs/committee/` (16 LS DRSCs + 8 RS DRSCs). Records
+  carry a `kind: "committee_report"` field, distinguish original reports
+  from Action-Taken Reports (`report_type`), and surface where the report
+  has been laid (`presented_via`: `speaker_only` / `ls_only` / `rs_only` /
+  `both_houses`) — these are political distinctions, not metadata.
+- Normalises every house and every kind into one JSONL manifest with a
+  stable composite key, so re-running the crawler resumes cleanly from
+  where it left off.
+- Optionally downloads each answer's or report's PDF.
 - Extracts text from PDFs with `pdftotext -layout` (preferred for
   layout-heavy parliamentary tables), falling back to `pdfminer.six`
   when `pdftotext` is unavailable.
 - Classifies every record with one of four modes: deterministic regex
   rules, embedding-anchor similarity, LLM JSON tagging, or an ensemble.
+  Every record stamps `language_classified` so consumers know which
+  languages were actually examined (today: English-only).
+- Writes one record to `_runs.jsonl` per crawl invocation containing the
+  topic-profile content hash, classifier mode, scope, and counts. Records
+  carry a `run_id` linking them back; the categorical apparatus and the
+  data it produced are inseparable.
 - Exports a reusable summary as JSON or as a browser-ready
   `window.<NAME>` JS file for static sites.
+
+## What this is — and isn't
+
+This tool builds *corpora*. It does not build accountability. Visibility
+of parliamentary outputs is not the same as comprehension of them, and
+making committee reports browsable is a different act from making them
+consequential. Two things follow.
+
+- **"Audit-grade" here means deterministic and traceable, not
+  authoritative.** The regex classifier always produces the same output
+  for the same input, and `_runs.jsonl` records exactly which profile
+  bytes produced which records. That property is real and useful. It is
+  not a substitute for reading the report.
+- **Topic-tag matches are about words, not about subjects.** A
+  committee report whose title does not mention libraries can still
+  concern libraries; a title that does can be tangential. The classifier
+  reports its working out (`matches`, `score`); consumers should treat
+  these as a triage signal, not a verdict.
+
+The tool's primary users are researchers building topic-specific corpora
+of parliamentary text, and the static-site builders that present those
+corpora. It is not a watchdog, a summariser, or a search engine.
 
 ## Install
 
@@ -89,6 +132,21 @@ python -m sansad_semantic_crawler export \
   --format js \
   --js-global PARLIAMENT_LIBRARY_DATA \
   --export-path data/libraries/parliament_libraries.js
+
+# Standing-committee reports (Lok Sabha + Rajya Sabha DRSCs). Smoke run:
+python -m sansad_semantic_crawler crawl-committees \
+  --topic examples/topics/libraries.json \
+  --out data/libraries-committees \
+  --house ls \
+  --committees finance \
+  --max-records 2 \
+  --no-download
+
+# Full LS+RS committee crawl, both houses, current Lok Sabha:
+python -m sansad_semantic_crawler crawl-committees \
+  --topic examples/topics/libraries.json \
+  --out data/libraries-committees \
+  --lok-sabha-no 18
 ```
 
 After install, the same commands are also available via the
@@ -238,7 +296,10 @@ otherwise not redistributed; the crawler only needs the path on disk.
 
 ```text
 data/<topic>/
-  manifest.jsonl       normalised crawl records (one per question)
+  manifest.jsonl       normalised crawl records (one per question or report)
+  _runs.jsonl          one record per crawl invocation: profile hash,
+                       classifier mode, scope, counts, errors. Read this
+                       to know which apparatus produced which records.
   analysis.jsonl       parsed + scored records (after `parse`)
   summary.json         aggregate export (after `export`)
   crawl.log
@@ -248,6 +309,9 @@ data/<topic>/
     rs/*.pdf
   text/*.txt           extracted PDF text, one file per record
 ```
+
+Records carry a `run_id` field that maps to a row in `_runs.jsonl`. To
+verify which topic-profile bytes produced a record, look up its run.
 
 ## Commands
 
@@ -271,9 +335,25 @@ python -m sansad_semantic_crawler export --help
 - **`--max-buckets` and `--max-records` are smoke-test brakes.** Use
   them before a full crawl.
 - **Stable keys.** Each record's `key` is derived from
-  `(house, qtype, qno, answer-date)`. Re-running the crawler resumes
-  from `manifest.jsonl` and never re-fetches a key it has already
-  seen.
+  `(house, qtype, qno, answer-date)` for questions, and from
+  `(house, committee, report_no[, lokSabha])` for committee reports.
+  Re-running the crawler resumes from `manifest.jsonl` and never
+  re-fetches a key it has already seen.
+- **Form is data, not metadata.** Where a committee report has been
+  laid (Speaker only, Lok Sabha only, both houses) is a political
+  distinction with consequences. The crawler surfaces it as
+  `presented_via` rather than burying it inside dates the consumer
+  must reconstruct. Action-Taken Reports are tagged `report_type:
+  "action_taken"` because their genre matters.
+- **Categories travel with records.** Every crawl invocation appends one
+  row to `_runs.jsonl` with the topic-profile content hash and the
+  effective classifier configuration (with secrets redacted). A record
+  cannot be read apart from the apparatus that classified it.
+- **Hindi titles are stored, not classified.** Records carry both
+  English (`title`) and Hindi (`title_hindi`) where the API supplies
+  them, but the classifier examines English only. `language_classified`
+  on each record names this honestly. Hindi-language analysis is a
+  known structural gap; see roadmap.
 
 ## Reuse pattern
 
@@ -290,12 +370,27 @@ python -m sansad_semantic_crawler export --help
 
 ## Status and roadmap
 
-This is the **0.2.0** release: the crawler now supports regex,
-embeddings, LLM, and ensemble classifiers behind one topic-profile
-contract. Planned for later releases:
+This is the **0.2.0** release: the crawler supports regex, embeddings,
+LLM, and ensemble classifiers behind one topic-profile contract. The
+upcoming **0.3.0** release adds standing-committee reports under the
+same contract, plus the `_runs.jsonl` provenance log and the new
+`presented_via` / `report_type` / `language_classified` record fields.
 
-- Cover **standing-committee reports** (`prsindia.org`,
-  `parliamentwatchindia` style) under the same topic-profile contract.
+Planned for later releases:
+
+- **Hindi-language classification parity.** Today the classifier reads
+  English titles only. Real parity needs per-profile `covers_languages`,
+  Hindi anchor phrases for embeddings (`bge-m3` already handles
+  Devanagari), and Hindi regex with transliteration support. Until
+  then, `language_classified: ["en"]` is on every record.
+- **Profile assumptions schema.** Optional `assumptions` and `omissions`
+  fields on topic profiles, surfaced in `_runs.jsonl` and in `summary.json`,
+  so a consumer reading the corpus is told what the profile is *not*
+  trying to capture.
+- **Action-Taken Report linkage.** Cross-link an ATR to the original
+  report it answers, when the title or committee/report number permits.
+  The genre distinction is already captured (`report_type`); the
+  citation graph is not.
 - A **resume-with-date-floor** mode for incremental backfills.
 - A small `evaluate` command that scores precision / recall against a
   hand-labelled gold set.

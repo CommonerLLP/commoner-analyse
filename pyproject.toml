@@ -48,5 +48,14 @@ Issues = "https://github.com/CommonerLLP/sansad-semantic-crawler/issues"
 [project.scripts]
 sansad-crawl = "sansad_semantic_crawler.cli:main"
 
+# Constrain setuptools auto-discovery so editable installs from a
+# working tree don't pick up sibling top-level dirs (`notes/`, `data/`,
+# `examples/`, `docs/`) as candidate packages. Consumers installing via
+# `git+https://` clone a gitignore-clean tree and weren't affected by
+# the discovery ambiguity, but local editable installs were.
+[tool.setuptools.packages.find]
+include = ["sansad_semantic_crawler*"]
+namespaces = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
