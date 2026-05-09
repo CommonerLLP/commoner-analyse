@@ -32,21 +32,14 @@ Planned for the next release:
 
 ### Added — `mp-dossier` CLI subcommand (per-MP topic briefing)
 
-The first analyst-facing lever from `notes/ROADMAP.md §IV`: given an MP's
-`entity_id` (preferred) or loose `--name`, generate a single Markdown
-briefing covering their entire question history on a corpus, grouped
-by topic, with the ministerial response-label distribution and
-excerpts of evasion text per topic.
-
-The artefact is what the analyst reads to make the bridging-knowledge
-call (per `notes/PRODUCT_DESIGN.md §IV`). The crawler does *not*
-suggest reframings; it makes the gap visible — *"on libraries, this MP
-got SCOPE_NARROWED 3 times"* — so the analyst applies their domain
-knowledge to suggest a better framing.
+Given an MP's `entity_id` (preferred) or loose `--name`, generate a
+single Markdown briefing covering their entire question history on a
+corpus, grouped by topic, with the ministerial response-label
+distribution and excerpts of evasion text per topic.
 
 ```
 sansad-crawl mp-dossier --out <corpus_dir> --entity-id PERSON_xxx
-sansad-crawl mp-dossier --out <corpus_dir> --name "Sivadasan"
+sansad-crawl mp-dossier --out <corpus_dir> --name "<surname>"
 ```
 
 Output: `<corpus_dir>/mp_dossiers/<slug>.md`.
@@ -62,31 +55,21 @@ The dossier section heading for each topic is the most common original
 surface form across the cluster, not whichever record happened to come
 last in iteration order.
 
-### Validation posture
-
-🟡 **User-validated, awaiting deployment iteration.** The next step is
-to run `mp-dossier` for Sivadasan against a libraries-topic corpus,
-hand the Markdown to his office, and iterate based on whether the
-output is useful. If unreadable or missing topics he actually cares
-about, slip and fix.
-
 ### Tests
 
-335 tests passing (up from 313). 22 new tests in
-`tests/test_dossier.py` covering topic-key normalisation, loose name
-matching, record selection by entity_id and name, Markdown rendering,
-empty-corpus handling, `mp_dossiers/` slug derivation, and topic-key
-clustering.
+22 new tests in `tests/test_dossier.py` covering topic-key
+normalisation, loose name matching, record selection by entity_id and
+name, Markdown rendering, empty-corpus handling, `mp_dossiers/` slug
+derivation, and topic-key clustering.
 
 ## [0.6.5] — 2026-05-09
 
 ### Added — structured Q/A sub-fields
 
-First step toward the v0.7.0 `mp-draft` bridge feature for Azad
-(per `notes/ROADMAP.md`). `split_qa()` has emitted full
-`question_text` / `answer_text` halves since v0.5.0; this release adds
-*structured* sub-fields stripped of PDF boilerplate so embedding-based
-search has clean text to index in v0.7.0.
+`split_qa()` has emitted full `question_text` / `answer_text` halves
+since v0.5.0; this release adds *structured* sub-fields stripped of
+PDF boilerplate so embedding-based search has clean text to index in
+v0.7.0.
 
 Five new additive sub-fields on Q/A records in `answers.jsonl`:
 
@@ -102,7 +85,7 @@ Each parser is best-effort. When its anchor isn't found, the field is
 placeholder that would lie about presence. Legacy `question_text` and
 `answer_text` are unchanged.
 
-Live ADP Q/A coverage (n=279): `answer_minister_name` 95%, `question_subject` 33%, `question_stem` 34%. The lower subject/stem rates reflect real corpus variability; about a third of Lok Sabha Q/A PDFs don't follow the canonical "Will the Minister of X be pleased to state:" form.
+On a representative LS Q/A corpus, `answer_minister_name` extracts cleanly on the large majority of PDFs; `question_subject` and `question_stem` extract on the subset of PDFs that follow the canonical "Will the Minister of X be pleased to state:" form. PDFs that depart from this form fall through with the relevant fields omitted, rather than emitted as empty placeholders.
 
 ### Tests
 
@@ -131,11 +114,11 @@ artifacts. Each is small, reads existing JSONL outputs, carries
   `"Three Hundred And Sixty Sixth Report"`, and the older
   `"Report No. N"` form). Anchored matching against
   `"contained in the"` is required because the ATR's own number
-  appears earlier in the title than the referenced one. Live-corpus
-  result: 83 / 96 ADP committee ATRs get a linkage extracted (was 31
-  with a naive regex). Output rows carry `references_report_no` plus
-  the computed `references_report_key` for direct join into
-  `manifest.jsonl`.
+  appears earlier in the title than the referenced one. Output rows
+  carry `references_report_no` plus the computed
+  `references_report_key` for direct join into `manifest.jsonl`. The
+  anchored matcher recovers a substantial majority of ATRs that a
+  naive regex misses.
 - **`mp-summary`** — aggregates per-MP question count, ministries
   asked, and response-label distribution. Keys by stable `entity_id`
   when the resolver was used; falls back to a name-based key. Each
@@ -155,13 +138,12 @@ artifacts. Each is small, reads existing JSONL outputs, carries
 ### Why this matters
 
 These three turn the crawler into a reusable research instrument.
-With the live ADP corpus on disk, an opposition MP's research
-assistant can now run `mp-summary` to find every question asked on a
-topic by party, then `analyse-ministry` to identify the ministries
-where evasion is structural, then `extract-atr-linkage` to follow
-specific recommendations through their committee → ATR life cycle.
-None of this required a re-crawl; all three subcommands operate on
-existing JSONL.
+With a corpus on disk, a researcher can run `mp-summary` to aggregate
+question counts and response-label distributions per MP, then
+`analyse-ministry` to identify ministries with structural evasion
+patterns, then `extract-atr-linkage` to follow specific recommendations
+through their committee → ATR life cycle. All three subcommands
+operate on existing JSONL — no re-crawl required.
 
 ### Tests
 
@@ -212,13 +194,12 @@ own-initiative policy investigation — which are different forms of
 legislative control over the executive. Researchers studying any one
 of these dimensions need a clean filter.
 
-Live-corpus distribution from the v0.6.0 ADP committee crawl (n=221):
-- `action_taken`: 96 (43%)
-- `demands_for_grants`: 71 (32%)
-- `subject`: 27 (12%)
-- `other`: 19 (9%)  — programme-name titles like "Pradhan Mantri
-  Gram Sadak Yojana"
-- `bill`: 8 (4%)
+On a representative committee-report corpus, all five categories
+appear, with `action_taken` and `demands_for_grants` typically the
+two largest buckets, `subject` and `bill` smaller, and a residual
+`other` for programme-name titles ("Pradhan Mantri Gram Sadak Yojana",
+etc.) that don't match any of the four pattern groups. Specific
+distributions vary by which committees and time window are crawled.
 
 ### Compatibility
 
@@ -344,13 +325,12 @@ in v0.6.0) and the legacy crawler download paths.
 
 ### Documented
 
-- `notes/TECHDEBT.md` — 8 architecture findings from the same review
-  pass (channel-as-string fragility, `regex_v1` name collision,
-  weighting LLM-row stratification, duplicate HTTP layer between
-  `discourse.py` and `classifiers/llm.py`, hand-pinned
-  `TOOL_VERSION`, naive datetime, missing `topic_hash` in
-  `analysis_discourse.jsonl`, `export.py` blindness to discourse
-  layer). Scoped for v0.7.0.
+8 architecture findings surfaced by the same review pass have been
+filed for follow-up in v0.7.0 (channel-as-string fragility, `regex_v1`
+name collision, weighting LLM-row stratification, duplicate HTTP layer
+between `discourse.py` and `classifiers/llm.py`, hand-pinned
+`TOOL_VERSION`, naive datetime, missing `topic_hash` in
+`analysis_discourse.jsonl`, `export.py` blindness to discourse layer).
 
 ### Tests
 

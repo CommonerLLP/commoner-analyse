@@ -95,17 +95,17 @@ class NormalizeTopicKeyTests(unittest.TestCase):
 class NameMatchesTests(unittest.TestCase):
 
     def test_exact_surname_match(self):
-        self.assertTrue(_name_matches("Sule", "Supriya Sule"))
-        self.assertTrue(_name_matches("sule", "SUPRIYA SULE"))
+        self.assertTrue(_name_matches("Sharma", "Aarav Sharma"))
+        self.assertTrue(_name_matches("sharma", "AARAV SHARMA"))
 
     def test_substring_with_honorific(self):
-        self.assertTrue(_name_matches("Supriya Sule", "Smt. Supriya Sule"))
-        self.assertTrue(_name_matches("Sivadasan", "Dr V Sivadasan"))
+        self.assertTrue(_name_matches("Aarav Sharma", "Smt. Aarav Sharma"))
+        self.assertTrue(_name_matches("Iyer", "Dr V Iyer"))
 
     def test_no_match(self):
-        self.assertFalse(_name_matches("Modi", "Supriya Sule"))
-        self.assertFalse(_name_matches("", "Supriya Sule"))
-        self.assertFalse(_name_matches("Sule", ""))
+        self.assertFalse(_name_matches("Modi", "Aarav Sharma"))
+        self.assertFalse(_name_matches("", "Aarav Sharma"))
+        self.assertFalse(_name_matches("Sharma", ""))
 
 
 # --------------------------------------------------------------------------- #
@@ -120,16 +120,16 @@ class FindMpRecordsTests(unittest.TestCase):
             out = Path(tmp)
             _write_jsonl(out / "manifest.jsonl", [
                 {"key": "k1", "kind": "qa", "ministry": "FINANCE",
-                 "asker_entity_ids": ["PERSON_aaa_supriya_sule"],
-                 "asker_details": [{"name": "Supriya Sule", "party": "NCP"}],
-                 "askers": ["Supriya Sule"]},
+                 "asker_entity_ids": ["PERSON_aaa_aarav_sharma"],
+                 "asker_details": [{"name": "Aarav Sharma", "party": "NCP"}],
+                 "askers": ["Aarav Sharma"]},
                 {"key": "k2", "kind": "qa", "ministry": "AGRI",
                  "asker_entity_ids": ["PERSON_bbb_other"],
                  "asker_details": [{"name": "Other"}],
                  "askers": ["Other"]},
             ])
             _write_jsonl(out / "analysis_discourse.jsonl", [])
-            pairs = find_mp_records(out, entity_id="PERSON_aaa_supriya_sule")
+            pairs = find_mp_records(out, entity_id="PERSON_aaa_aarav_sharma")
             self.assertEqual(len(pairs), 1)
             self.assertEqual(pairs[0][0]["key"], "k1")
 
@@ -138,11 +138,11 @@ class FindMpRecordsTests(unittest.TestCase):
             out = Path(tmp)
             _write_jsonl(out / "manifest.jsonl", [
                 {"key": "k1", "kind": "qa",
-                 "asker_details": [{"name": "Smt. Supriya Sule", "party": "NCP"}],
-                 "askers": ["Smt. Supriya Sule"]},
+                 "asker_details": [{"name": "Smt. Aarav Sharma", "party": "NCP"}],
+                 "askers": ["Smt. Aarav Sharma"]},
             ])
             _write_jsonl(out / "analysis_discourse.jsonl", [])
-            pairs = find_mp_records(out, name="Sule")
+            pairs = find_mp_records(out, name="Sharma")
             self.assertEqual(len(pairs), 1)
 
     def test_committee_records_skipped(self):
@@ -212,15 +212,15 @@ class BuildMpDossierTests(unittest.TestCase):
                         "key": "k1", "kind": "qa", "ministry": "CULTURE",
                         "house": "Lok Sabha", "date": "2023-08-12",
                         "asker_entity_ids": ["PERSON_aaa"],
-                        "asker_details": [{"name": "Dr V Sivadasan", "party": "CPI(M)", "state": "Kerala"}],
-                        "askers": ["Dr V Sivadasan"],
+                        "asker_details": [{"name": "Dr V Iyer", "party": "CPI(M)", "state": "Kerala"}],
+                        "askers": ["Dr V Iyer"],
                     },
                     {
                         "key": "k2", "kind": "qa", "ministry": "CULTURE",
                         "house": "Lok Sabha", "date": "2024-03-04",
                         "asker_entity_ids": ["PERSON_aaa"],
-                        "asker_details": [{"name": "Dr V Sivadasan", "party": "CPI(M)", "state": "Kerala"}],
-                        "askers": ["Dr V Sivadasan"],
+                        "asker_details": [{"name": "Dr V Iyer", "party": "CPI(M)", "state": "Kerala"}],
+                        "askers": ["Dr V Iyer"],
                     },
                 ],
                 answers=[
@@ -240,7 +240,7 @@ class BuildMpDossierTests(unittest.TestCase):
             self.assertIsNotNone(path)
             md = path.read_text()
             # Header + summary
-            self.assertIn("Sivadasan", md)
+            self.assertIn("Iyer", md)
             self.assertIn("CPI(M)", md)
             self.assertIn("Kerala", md)
             self.assertIn("**Total questions:** 2", md)
@@ -289,15 +289,15 @@ class BuildMpDossierTests(unittest.TestCase):
                 out,
                 manifest=[{
                     "key": "k1", "kind": "qa",
-                    "asker_entity_ids": ["PERSON_aaa_supriya_sule"],
-                    "asker_details": [{"name": "Supriya Sule"}],
-                    "askers": ["Supriya Sule"],
+                    "asker_entity_ids": ["PERSON_aaa_aarav_sharma"],
+                    "asker_details": [{"name": "Aarav Sharma"}],
+                    "askers": ["Aarav Sharma"],
                 }],
                 answers=[{"key": "k1", "kind": "qa_response", "question_subject": "PMFBY"}],
                 discourse=[{"key": "k1", "label": "ACCEPTED"}],
             )
-            path = build_mp_dossier(out, entity_id="PERSON_aaa_supriya_sule", log_fn=lambda *_: None)
-            self.assertEqual(path.name, "PERSON_aaa_supriya_sule.md")
+            path = build_mp_dossier(out, entity_id="PERSON_aaa_aarav_sharma", log_fn=lambda *_: None)
+            self.assertEqual(path.name, "PERSON_aaa_aarav_sharma.md")
 
     def test_display_picks_most_common_surface_form(self):
         # Three records cluster into one topic key. Two carry the surface
@@ -379,10 +379,10 @@ class BuildMpDossierTests(unittest.TestCase):
 class SlugifyTests(unittest.TestCase):
 
     def test_keeps_alphanumeric_and_underscores(self):
-        self.assertEqual(_slugify("PERSON_aaa_supriya_sule"), "PERSON_aaa_supriya_sule")
+        self.assertEqual(_slugify("PERSON_aaa_aarav_sharma"), "PERSON_aaa_aarav_sharma")
 
     def test_strips_unsafe_chars(self):
-        self.assertEqual(_slugify("Dr. Supriya Sule!"), "Dr_Supriya_Sule")
+        self.assertEqual(_slugify("Dr. Aarav Sharma!"), "Dr_Aarav_Sharma")
 
     def test_unknown_fallback(self):
         self.assertEqual(_slugify(""), "unknown")

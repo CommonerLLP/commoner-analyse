@@ -1,0 +1,182 @@
+{
+  "name": "affirmative_action",
+  "description": "SC/ST/OBC/EWS reservation policy, backlog reserved vacancies, post-creation and promotion-in-reservation, and SC/ST (Prevention of Atrocities) Act enforcement.",
+  "search_groups": {
+    "reservation_general": [
+      "reservation",
+      "reserved post",
+      "reserved category",
+      "reservation roster",
+      "reservation policy",
+      "reservation in promotion"
+    ],
+    "sc_st": [
+      "Scheduled Caste",
+      "Scheduled Tribe",
+      "SC/ST",
+      "scheduled castes and scheduled tribes",
+      "Dalit",
+      "Adivasi"
+    ],
+    "obc": [
+      "Other Backward Classes",
+      "OBC reservation",
+      "Mandal Commission",
+      "creamy layer",
+      "central list of OBCs"
+    ],
+    "ews": [
+      "Economically Weaker Section",
+      "EWS reservation",
+      "EWS quota",
+      "10 per cent reservation"
+    ],
+    "vacancies_backlog": [
+      "vacant post",
+      "vacancies",
+      "backlog vacancies",
+      "backlog reserved",
+      "backlog post",
+      "compassionate appointment",
+      "post creation",
+      "sanctioned post"
+    ],
+    "promotion_and_creation": [
+      "promotion in reservation",
+      "reservation in promotion",
+      "consequential seniority",
+      "creamy layer in promotion",
+      "post creation",
+      "cadre review"
+    ],
+    "atrocities": [
+      "Prevention of Atrocities Act",
+      "POA Act",
+      "SC/ST Atrocities Act",
+      "atrocities against Dalits",
+      "atrocities against tribals",
+      "PCR Act",
+      "Protection of Civil Rights"
+    ]
+  },
+  "lok_sabha_ministries": [
+    "PERSONNEL, PUBLIC GRIEVANCES AND PENSIONS",
+    "SOCIAL JUSTICE AND EMPOWERMENT",
+    "TRIBAL AFFAIRS",
+    "MINORITY AFFAIRS",
+    "EDUCATION",
+    "LABOUR AND EMPLOYMENT",
+    "HOME AFFAIRS",
+    "WOMEN AND CHILD DEVELOPMENT"
+  ],
+  "rajya_sabha_ministry_likes": [
+    "PERSONNEL",
+    "SOCIAL JUSTICE",
+    "TRIBAL AFFAIRS",
+    "MINORITY AFFAIRS",
+    "EDUCATION",
+    "LABOUR",
+    "HOME AFFAIRS",
+    "WOMEN AND CHILD"
+  ],
+  "fallback_tag": "affirmative_action_match",
+  "tag_rules": [
+    {
+      "tag": "backlog_vacancies",
+      "label": "Backlog reserved vacancies",
+      "weight": 4,
+      "patterns": [
+        "backlog\\s+(reserved\\s+)?(vacanc|post)",
+        "(SC|ST|OBC|EWS).{0,40}backlog",
+        "backlog.{0,40}(SC|ST|OBC|EWS)"
+      ]
+    },
+    {
+      "tag": "promotion_in_reservation",
+      "label": "Reservation in promotion",
+      "weight": 4,
+      "patterns": [
+        "reservation\\s+in\\s+promotion",
+        "promotion\\s+in\\s+reservation",
+        "consequential\\s+seniority"
+      ]
+    },
+    {
+      "tag": "ews_quota",
+      "label": "EWS reservation",
+      "weight": 4,
+      "patterns": [
+        "Economically\\s+Weaker\\s+Section",
+        "\\bEWS\\b.{0,40}(reservation|quota|post)",
+        "10\\s*per\\s*cent\\s+reservation"
+      ]
+    },
+    {
+      "tag": "atrocities_act",
+      "label": "SC/ST (Prevention of Atrocities) Act",
+      "weight": 4,
+      "patterns": [
+        "Prevention\\s+of\\s+Atrocities\\s+Act",
+        "\\bPOA\\s+Act\\b",
+        "SC/ST\\s+Atrocities",
+        "atrocities\\s+against\\s+(Dalits|Scheduled\\s+Castes|Scheduled\\s+Tribes|tribals)",
+        "Protection\\s+of\\s+Civil\\s+Rights\\s+Act",
+        "\\bPCR\\s+Act\\b"
+      ]
+    },
+    {
+      "tag": "post_creation",
+      "label": "Post creation / sanctioned strength",
+      "weight": 3,
+      "patterns": [
+        "creation\\s+of\\s+(reserved\\s+)?post",
+        "sanctioned\\s+post.{0,80}(reserved|SC|ST|OBC|EWS)",
+        "(reserved|SC|ST|OBC|EWS).{0,80}sanctioned\\s+post",
+        "cadre\\s+review"
+      ]
+    },
+    {
+      "tag": "compassionate_appointment",
+      "label": "Compassionate appointment",
+      "weight": 3,
+      "patterns": ["compassionate\\s+appointment"]
+    },
+    {
+      "tag": "creamy_layer",
+      "label": "Creamy layer",
+      "weight": 3,
+      "patterns": ["creamy\\s+layer"]
+    },
+    {
+      "tag": "reservation_roster",
+      "label": "Reservation roster",
+      "weight": 3,
+      "patterns": ["reservation\\s+roster", "200[- ]point\\s+roster", "13[- ]point\\s+roster"]
+    },
+    {
+      "tag": "sc_st_reservation",
+      "label": "SC/ST reservation",
+      "weight": 2,
+      "patterns": [
+        "(Scheduled\\s+Castes?|Scheduled\\s+Tribes?|SC/ST).{0,80}reservation",
+        "reservation.{0,80}(Scheduled\\s+Castes?|Scheduled\\s+Tribes?|SC/ST)"
+      ]
+    },
+    {
+      "tag": "obc_reservation",
+      "label": "OBC reservation",
+      "weight": 2,
+      "patterns": [
+        "Other\\s+Backward\\s+Classes",
+        "\\bOBC\\b.{0,40}(reservation|quota|post)",
+        "Mandal\\s+Commission"
+      ]
+    },
+    {
+      "tag": "general_reservation",
+      "label": "Reservation (general)",
+      "weight": 1,
+      "patterns": ["\\breservation\\b", "reserved\\s+(post|categor|seat)"]
+    }
+  ]
+}

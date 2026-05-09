@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pre-commit guard against private-information leaks. Refuses the
+# commit if any tracked file (in the staged diff) matches a forbidden
+# pattern. See scripts/check_leaks.py.
+#
+# Enable on a fresh clone:
+#   git config core.hooksPath .githooks
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+PYTHON="${PYTHON:-python3}"
+if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python"
+fi
+
+"$PYTHON" "$REPO_ROOT/scripts/check_leaks.py" --staged

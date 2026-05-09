@@ -135,8 +135,8 @@ _ANSWERED_ON_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-# The asker line: "1147. SHRI. RAMESH CHANDRA MAJHI:" or
-# "*123. SHRIMATI SUPRIYA SULE:". Number + honorific + name + colon.
+# The asker line: "1147. SHRI. <NAME>:" or
+# "*123. SHRIMATI <NAME>:". Number + honorific + name + colon.
 _ASKER_LINE_RE = re.compile(
     r"^\s*\*?\s*\d+\.?\s+(?:SHRI|SHRIMATI|SMT|DR|KUMARI|PROF)"
     r"[A-Z\.\s,]+:\s*$",

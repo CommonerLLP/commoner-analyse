@@ -12,9 +12,8 @@ of true source. v0.6.3 fixes this:
   so consumers can filter cleanly.
 
 Title fixtures are taken from real sansad.in committee report titles
-surfaced by the v0.6.0 ADP committee crawl (Standing Committee on
-Finance + Standing Committee on Rural Development, LS 18; DRSC on
-Education and Health, RS).
+across a representative span of Departmentally Related Standing
+Committees in both houses.
 """
 
 from __future__ import annotations

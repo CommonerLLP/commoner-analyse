@@ -31,23 +31,23 @@ class MpSummaryTests(unittest.TestCase):
                 {
                     "key": "k1", "kind": "qa", "ministry": "FINANCE",
                     "house": "Lok Sabha",
-                    "asker_details": [{"name": "Supriya Sule", "party": "NCP", "state": "Maharashtra"}],
-                    "asker_entity_ids": ["PERSON_aaa_supriya_sule"],
-                    "askers": ["Supriya Sule"],
+                    "asker_details": [{"name": "Aarav Sharma", "party": "NCP", "state": "Maharashtra"}],
+                    "asker_entity_ids": ["PERSON_aaa_aarav_sharma"],
+                    "askers": ["Aarav Sharma"],
                 },
                 {
                     "key": "k2", "kind": "qa", "ministry": "RURAL DEVELOPMENT",
                     "house": "Lok Sabha",
-                    "asker_details": [{"name": "Supriya Sule", "party": "NCP", "state": "Maharashtra"}],
-                    "asker_entity_ids": ["PERSON_aaa_supriya_sule"],
-                    "askers": ["Supriya Sule"],
+                    "asker_details": [{"name": "Aarav Sharma", "party": "NCP", "state": "Maharashtra"}],
+                    "asker_entity_ids": ["PERSON_aaa_aarav_sharma"],
+                    "askers": ["Aarav Sharma"],
                 },
                 {
                     "key": "k3", "kind": "qa", "ministry": "FINANCE",
                     "house": "Lok Sabha",
-                    "asker_details": [{"name": "Mahua Moitra", "party": "AITC", "state": "West Bengal"}],
-                    "asker_entity_ids": ["PERSON_bbb_mahua_moitra"],
-                    "askers": ["Mahua Moitra"],
+                    "asker_details": [{"name": "Priya Iyer", "party": "AITC", "state": "West Bengal"}],
+                    "asker_entity_ids": ["PERSON_bbb_priya_iyer"],
+                    "askers": ["Priya Iyer"],
                 },
             ])
             _write_jsonl(out / "analysis_discourse.jsonl", [
@@ -61,20 +61,20 @@ class MpSummaryTests(unittest.TestCase):
 
         self.assertEqual(stats.persons_emitted, 2)
         by_id = {r["entity_id"]: r for r in rows}
-        sule = by_id["PERSON_aaa_supriya_sule"]
-        self.assertEqual(sule["questions_asked"], 2)
-        self.assertEqual(sule["ministries_asked"], {"FINANCE": 1, "RURAL DEVELOPMENT": 1})
-        self.assertEqual(sule["party"], "NCP")
-        self.assertEqual(sule["state"], "Maharashtra")
-        self.assertEqual(sule["substantive_count"], 1)  # ACCEPTED
-        self.assertEqual(sule["evasive_count"], 1)      # DEFLECTED
-        self.assertAlmostEqual(sule["evasion_rate_classified"], 0.5)
-        self.assertEqual(sule["method"], AGGREGATION_VERSION)
+        aarav = by_id["PERSON_aaa_aarav_sharma"]
+        self.assertEqual(aarav["questions_asked"], 2)
+        self.assertEqual(aarav["ministries_asked"], {"FINANCE": 1, "RURAL DEVELOPMENT": 1})
+        self.assertEqual(aarav["party"], "NCP")
+        self.assertEqual(aarav["state"], "Maharashtra")
+        self.assertEqual(aarav["substantive_count"], 1)  # ACCEPTED
+        self.assertEqual(aarav["evasive_count"], 1)      # DEFLECTED
+        self.assertAlmostEqual(aarav["evasion_rate_classified"], 0.5)
+        self.assertEqual(aarav["method"], AGGREGATION_VERSION)
 
-        moitra = by_id["PERSON_bbb_mahua_moitra"]
-        self.assertEqual(moitra["questions_asked"], 1)
-        self.assertEqual(moitra["evasive_count"], 1)
-        self.assertEqual(moitra["evasion_rate_classified"], 1.0)
+        priya = by_id["PERSON_bbb_priya_iyer"]
+        self.assertEqual(priya["questions_asked"], 1)
+        self.assertEqual(priya["evasive_count"], 1)
+        self.assertEqual(priya["evasion_rate_classified"], 1.0)
 
     def test_committee_records_excluded_from_mp_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
