@@ -103,11 +103,90 @@ def parse_rs_date(value: str | None) -> str:
 # different political weight (Hull, *Documents and Bureaucracy*: form is data).
 # Detected from title; the API does not expose this distinction structurally.
 _ATR_RE = re.compile(r"\baction[\s\-]+taken\b", re.IGNORECASE)
+_DFG_RE = re.compile(r"\bdemands?\s+for\s+grants?\b", re.IGNORECASE)
+# Bill-scrutiny reports: "The X Bill, 2025", "Examination of the X Bill",
+# "Provisions of the X Bill", "(Amendment) Bill". The trailing word-
+# boundary keeps "billion" and "billboard" out of the match.
+_BILL_RE = re.compile(
+    r"\b(?:Bill|Bills)\b(?:\s*,?\s*\d{4})?", re.IGNORECASE,
+)
+# Subject reports — sustained own-initiative policy investigations.
+# These titles vary widely; pattern is a non-exhaustive but common
+# inventory of opening verbs/nouns that mark a thematic study.
+_SUBJECT_HINTS_RE = re.compile(
+    r"\b(?:"
+    r"review|working|functioning|performance|evolving\s+role|"
+    r"role\s+of|promoting|promotion\s+of|"
+    r"roadmap|status|examination|implementation|impact|study|"
+    r"assessment|emerging\s+issues|policy|"
+    r"issues\s+(?:relating|pertaining)\s+to"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# Public canonical set so downstream code can import a single source of truth.
+REPORT_TYPE_ACTION_TAKEN = "action_taken"
+REPORT_TYPE_DFG = "demands_for_grants"
+REPORT_TYPE_BILL = "bill"
+REPORT_TYPE_SUBJECT = "subject"
+REPORT_TYPE_OTHER = "other"
+
+REPORT_TYPES_KNOWN: frozenset[str] = frozenset({
+    REPORT_TYPE_ACTION_TAKEN,
+    REPORT_TYPE_DFG,
+    REPORT_TYPE_BILL,
+    REPORT_TYPE_SUBJECT,
+    REPORT_TYPE_OTHER,
+})
 
 
 def _report_type(title: str | None) -> str:
-    """'action_taken' if the title marks an ATR, else 'original'."""
-    return "action_taken" if title and _ATR_RE.search(title) else "original"
+    """Classify a committee report title into one of five categories.
+
+    The DRSC system in India produces four functionally distinct kinds
+    of report. Tagging them at extraction time is a precondition for
+    most downstream questions ("how does this committee budget-scrutinise
+    vs. own-initiative-investigate"). Prior to v0.6.3 this function was
+    binary (``action_taken`` vs ``original``), conflating DFGs, bill
+    examinations, and subject reports into one bucket.
+
+    Categories (in priority order — first match wins):
+
+    * ``action_taken``: the title contains ``Action Taken``. ATRs are
+      the government's formal response to an earlier substantive
+      report; they have a recommendation/response shape.
+    * ``demands_for_grants``: title contains ``Demands for Grants``.
+      Annual ministry-level budget scrutiny.
+    * ``bill``: title contains ``Bill`` (with year or word-boundary
+      guard so ``billion``/``billboard`` don't match).
+    * ``subject``: a subject/policy report — the committee's
+      own-initiative investigation. Detected by an inventory of
+      common opening words (``review``, ``working of``,
+      ``performance of``, ``roadmap``, ``status of``…).
+    * ``other``: title is empty or matches none of the above.
+      Intentionally distinct from ``subject`` so the absence of a
+      classifier is visible to consumers rather than being silently
+      coerced.
+
+    The classification is *additive* with respect to v0.6.0 schemas:
+    existing consumers that filter on ``report_type == 'action_taken'``
+    continue to work unchanged. Consumers that filtered on
+    ``report_type == 'original'`` will see the new finer-grained
+    values instead — that filter has not been correct since the day
+    it was written, since it was lumping three distinct report kinds.
+    """
+    if not title:
+        return REPORT_TYPE_OTHER
+    if _ATR_RE.search(title):
+        return REPORT_TYPE_ACTION_TAKEN
+    if _DFG_RE.search(title):
+        return REPORT_TYPE_DFG
+    if _BILL_RE.search(title):
+        return REPORT_TYPE_BILL
+    if _SUBJECT_HINTS_RE.search(title):
+        return REPORT_TYPE_SUBJECT
+    return REPORT_TYPE_OTHER
 
 
 def _ls_presented_via(raw: dict) -> str:

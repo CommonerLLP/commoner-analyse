@@ -314,7 +314,20 @@ class ExtractionStats:
 def _classify_source(rec: dict) -> str:
     """Decide which extractor applies to a manifest record.
 
-    Returns ``'qa'`` | ``'atr'`` | ``'dfg'`` | ``'skip'``.
+    Returns ``'qa'`` | ``'atr'`` | ``'observations'`` | ``'skip'``.
+
+    The ``'observations'`` bucket covers any committee report that
+    contains numbered Observations/Recommendations text — that's
+    Demands for Grants reports, Bill examinations, and Subject (own-
+    initiative) reports. They share a textual structure (numbered
+    paragraphs in a section heading variant of OBSERVATIONS /
+    RECOMMENDATIONS) so they share an extractor; the *source*
+    ``report_type`` from the manifest is preserved on each output
+    record as ``source_report_type`` so downstream filters can
+    distinguish them.
+
+    Prior to v0.6.3 this function returned ``'dfg'`` for everything
+    non-ATR, which mislabelled subject and bill reports as DFG.
     """
     kind = rec.get("kind") or ""
     report_type = rec.get("report_type") or ""
@@ -323,7 +336,9 @@ def _classify_source(rec: dict) -> str:
     if kind == "committee_report":
         if report_type == "action_taken":
             return "atr"
-        return "dfg"
+        # demands_for_grants | bill | subject | other (legacy "original")
+        # all dispatch to the observations extractor.
+        return "observations"
     return "skip"
 
 
@@ -377,6 +392,12 @@ def extract_answers(
             "source_pdf": str(pdf.relative_to(out_dir)),
             "extracted_at": _now(),
             "language_classified": ["en"],
+            # Carry the manifest's report_type forward so downstream
+            # consumers can distinguish numbered observations that came
+            # from a Demands-for-Grants vs Bill vs Subject report. Prior
+            # to v0.6.3 this distinction was not surfaced and all non-ATR
+            # records were tagged 'dfg_recommendation' regardless of source.
+            "source_report_type": rec.get("report_type"),
         }
 
         try:
@@ -395,7 +416,7 @@ def extract_answers(
                 for item in items:
                     out_records.append({**common, **item.to_record()})
                 stats.atr_records += len(items)
-            elif kind == "dfg":
+            elif kind == "observations":
                 items = split_dfg(text)
                 if not items:
                     stats.skipped_no_split += 1
