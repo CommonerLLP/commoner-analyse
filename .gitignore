@@ -8,3 +8,12 @@ build/
 
 # Internal strategy / architecture / design notes — NEVER commit.
 /notes/
+
+# Root-level private docs — local-only across all CommonerLLP repos.
+# (See _org/state-of-brain.md for the privacy posture.)
+/ARCHITECTURE.md
+/MISTAKES.md
+/PARSER-ARCHITECTURE.md
+/CLAUDE.md
+/AGENTS.md
+/memory/
