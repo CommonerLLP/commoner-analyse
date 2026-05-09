@@ -28,6 +28,70 @@ Planned for the next release:
   the LLM tier becoming the default.
 - Hindi-language classification parity.
 
+## [0.6.3] — 2026-05-09
+
+### Added
+
+- **Four-way committee `report_type` taxonomy.** Pre-v0.6.3 the
+  classifier was binary (`action_taken` vs `original`); everything
+  non-ATR was lumped into one bucket and downstream every numbered
+  observation got tagged `dfg_recommendation` regardless of source.
+  Now `_report_type()` returns one of:
+  - `action_taken` — government's response to earlier
+    recommendations
+  - `demands_for_grants` — annual ministry-level budget scrutiny
+  - `bill` — clause-by-clause legislative review
+  - `subject` — own-initiative policy investigation
+  - `other` — title doesn't match any pattern (intentionally
+    distinct from `subject` so the absence of a classifier is
+    visible to consumers)
+- **`source_report_type` field on extracted observation records.**
+  `answers.jsonl` records now carry the manifest's `report_type`
+  forward, so consumers can filter observations by their true
+  source (DFG vs Bill vs Subject vs Other) rather than treating all
+  non-ATR records as DFG.
+- **`REPORT_TYPE_*` public constants + `REPORT_TYPES_KNOWN` frozenset**
+  exported from `committees.py` as a single source of truth for
+  downstream import.
+
+### Why this matters
+
+India's 24 Departmentally Related Standing Committees produce four
+functionally distinct kinds of report. Conflating them loses the
+distinction between budget accountability, legislative scrutiny, and
+own-initiative policy investigation — which are different forms of
+legislative control over the executive. Researchers studying any one
+of these dimensions need a clean filter.
+
+Live-corpus distribution from the v0.6.0 ADP committee crawl (n=221):
+- `action_taken`: 96 (43%)
+- `demands_for_grants`: 71 (32%)
+- `subject`: 27 (12%)
+- `other`: 19 (9%)  — programme-name titles like "Pradhan Mantri
+  Gram Sadak Yojana"
+- `bill`: 8 (4%)
+
+### Compatibility
+
+- **Backward compatible.** Existing manifests with
+  `report_type='original'` continue to dispatch correctly through
+  `extract-answers` (legacy value treated as non-ATR observations).
+- Callers filtering on `report_type == 'action_taken'` are unchanged.
+- Callers filtering on `report_type == 'original'` should bump to
+  the finer-grained values — that filter was never correct anyway
+  since it lumped three distinct categories.
+
+### Tests
+
+267 tests passing (up from 243). 24 new tests in
+`tests/test_report_type.py` covering all 4 categories with real
+sansad.in title fixtures, priority-order pinning, and false-positive
+guards (`billion`/`billboard` don't match the Bill pattern).
+
+### Pull requests
+
+- [#23] feat: four-way committee report_type taxonomy
+
 ## [0.6.2] — 2026-05-09
 
 Security follow-up to v0.6.1 addressing two findings from automated
@@ -342,7 +406,8 @@ in v0.6.0) and the legacy crawler download paths.
 - `manifest.jsonl` and `analysis.jsonl` canonical schemas.
 - Resume-safe crawling via per-record stable keys.
 
-[Unreleased]: https://github.com/CommonerLLP/sansad-semantic-crawler/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/CommonerLLP/sansad-semantic-crawler/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v0.6.3
 [0.6.2]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v0.6.2
 [0.6.1]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v0.6.1
 [0.6.0]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v0.6.0
@@ -358,3 +423,4 @@ in v0.6.0) and the legacy crawler download paths.
 [#17]: https://github.com/CommonerLLP/sansad-semantic-crawler/pull/17
 [#19]: https://github.com/CommonerLLP/sansad-semantic-crawler/pull/19
 [#21]: https://github.com/CommonerLLP/sansad-semantic-crawler/pull/21
+[#23]: https://github.com/CommonerLLP/sansad-semantic-crawler/pull/23
