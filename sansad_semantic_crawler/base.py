@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from .http_client import make_session
 from .runlog import RunLog
@@ -16,6 +17,26 @@ if TYPE_CHECKING:
 
 def now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _encode_url_path(url: str) -> str:
+    """Percent-encode unsafe characters in the URL path/query.
+
+    sansad.in's committee endpoints embed committee names with literal spaces
+    in the path (e.g. ``/lsscommittee/Rural Development and Panchayati Raj/``).
+    Both ``urllib`` and ``requests`` reject URLs containing raw spaces or other
+    unencoded control characters; we must percent-encode the path/query before
+    handing the URL to the HTTP client.
+
+    Already-encoded URLs are left unchanged because ``%`` and ``+`` are in the
+    safe-set, so re-encoding is idempotent.
+    """
+    parts = urlsplit(url)
+    encoded_path = quote(parts.path, safe="/%+")
+    encoded_query = quote(parts.query, safe="=&%+")
+    return urlunsplit(
+        (parts.scheme, parts.netloc, encoded_path, encoded_query, parts.fragment)
+    )
 
 
 class BaseCrawler:
@@ -93,8 +114,9 @@ class BaseCrawler:
         if dest_path.exists() and dest_path.stat().st_size > 1000:
             return True
         dest_path.parent.mkdir(parents=True, exist_ok=True)
+        encoded_url = _encode_url_path(url)
         try:
-            r = self.session.get(url, headers=headers, timeout=60)
+            r = self.session.get(encoded_url, headers=headers, timeout=60)
             r.raise_for_status()
             with dest_path.open("wb") as f:
                 for chunk in r.iter_content(chunk_size=16384):
