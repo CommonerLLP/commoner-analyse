@@ -82,14 +82,24 @@ _QA_REPLY_RE = re.compile(
 
 @dataclass
 class QaExtraction:
-    question_text: str
-    answer_text: str
+    question_text: str       # Full raw question half (incl. boilerplate)
+    answer_text: str         # Full raw answer half (incl. minister preamble)
     confidence: float
     extractor: str = EXTRACTOR_VERSION
     boundary_marker: str = ""
+    # v0.6.5 — structured sub-fields derived from question_text/answer_text.
+    # Additive: legacy consumers reading question_text / answer_text are
+    # unaffected. Designed for the v0.7.0 mp-draft bridge feature, which
+    # needs clean substrings (subject, body) for semantic indexing rather
+    # than the noisy full PDF prelude.
+    question_subject: str = ""    # e.g. "ANNUAL INCOME OF SHGS"
+    question_stem: str = ""       # e.g. "Will the Minister of RURAL DEVELOPMENT be pleased to state:"
+    question_body: str = ""       # The actual (a)/(b)/(c)/(d) sub-questions
+    answer_minister_name: str = ""
+    answer_body: str = ""         # Answer text with minister-name preamble stripped
 
     def to_record(self) -> dict:
-        return {
+        rec = {
             "kind": "qa_response",
             "question_text": self.question_text,
             "answer_text": self.answer_text,
@@ -97,14 +107,141 @@ class QaExtraction:
             "extractor": self.extractor,
             "boundary_marker": self.boundary_marker,
         }
+        # Only emit structured fields when we actually parsed them, to
+        # avoid lying with empty-string defaults on legacy/edge records.
+        if self.question_subject:
+            rec["question_subject"] = self.question_subject
+        if self.question_stem:
+            rec["question_stem"] = self.question_stem
+        if self.question_body:
+            rec["question_body"] = self.question_body
+        if self.answer_minister_name:
+            rec["answer_minister_name"] = self.answer_minister_name
+        if self.answer_body:
+            rec["answer_body"] = self.answer_body
+        return rec
+
+
+# -------------------------------------------------------------------------
+# v0.6.5 — structured sub-extraction within Q/A halves
+# -------------------------------------------------------------------------
+
+# The "ANSWERED ON" date line is the most reliable boundary marker between
+# the boilerplate header (GOVERNMENT OF INDIA / MINISTRY / DEPT / LOK SABHA
+# / QUESTION NO. / ANSWERED ON DATE) and the substantive question content
+# (subject line, asker, stem, body).
+_ANSWERED_ON_RE = re.compile(
+    r"\bANSWERED\s+ON\b\s*[:.,]?\s*\d.*?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# The asker line: "1147. SHRI. RAMESH CHANDRA MAJHI:" or
+# "*123. SHRIMATI SUPRIYA SULE:". Number + honorific + name + colon.
+_ASKER_LINE_RE = re.compile(
+    r"^\s*\*?\s*\d+\.?\s+(?:SHRI|SHRIMATI|SMT|DR|KUMARI|PROF)"
+    r"[A-Z\.\s,]+:\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# The question stem: "Will the Minister of X be pleased to state:" or
+# variants like "be pleased to refer to the answer given...". Anchored on
+# "Will the Minister" so it doesn't catch other "Will" phrases.
+_QUESTION_STEM_RE = re.compile(
+    r"\bWill\s+the\s+Minister\b.*?:",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Minister-name preamble in the answer half: "MINISTER OF STATE IN THE
+# MINISTRY OF X (NAME)" or "THE MINISTER OF X: (NAME)". The name is in
+# parentheses; we capture it.
+#
+# The bridge between "MINISTER OF X" and the captured "(NAME)" is bounded
+# at ~250 chars so we don't accidentally walk into the answer body and
+# capture a sub-item paren like "(a) The Ministry...". The captured name
+# itself must be ≥4 chars and contain at least one space (so single-letter
+# false positives like "(a)" are excluded — a real minister name is
+# always at least "FIRST LAST").
+_MINISTER_NAME_RE = re.compile(
+    r"\b(?:THE\s+)?MINISTER\s+(?:OF\s+STATE\s+(?:IN\s+THE\s+MINISTRY\s+OF|FOR)\b|OF\s+(?!STATE)|FOR)"
+    r"[^()]{0,250}?\((?P<name>[^()]{4,}?\s[^()]{1,})\)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_question_subject(question_text: str) -> str:
+    """Extract the all-caps subject line that appears between the
+    "ANSWERED ON" header and the asker line. Returns "" if not found.
+    """
+    after_date = _ANSWERED_ON_RE.search(question_text)
+    if not after_date:
+        return ""
+    body_after_date = question_text[after_date.end():]
+    # Find the asker line — subject sits between ANSWERED ON and asker.
+    asker_m = _ASKER_LINE_RE.search(body_after_date)
+    candidate = body_after_date[: asker_m.start()] if asker_m else body_after_date[:300]
+    # Subject lines are usually one all-caps phrase, possibly multi-line.
+    # Strip whitespace, drop empty lines, take the longest contiguous
+    # non-empty caps-or-mixed line block.
+    lines = [l.strip() for l in candidate.splitlines() if l.strip()]
+    if not lines:
+        return ""
+    # Heuristic: the subject is the line(s) before any line starting with
+    # a digit (which would be the asker). Already handled by asker_m, so
+    # join all surviving lines.
+    return " ".join(lines).strip()[:200]
+
+
+def _parse_question_stem_and_body(question_text: str) -> tuple[str, str]:
+    """Split the substantive question into stem ("Will the Minister of X
+    be pleased to state:") and body (the (a)/(b)/(c)/(d) sub-questions).
+    Returns ("", "") if no stem found.
+    """
+    m = _QUESTION_STEM_RE.search(question_text)
+    if not m:
+        return "", ""
+    stem = m.group(0).strip()
+    # Body is everything after the stem.
+    body = question_text[m.end():].strip()
+    # Strip the trailing question-mark of the (d) sub-question only if
+    # the body already ends with one — preserve question-marks within.
+    return stem, body
+
+
+def _parse_answer_minister_and_body(answer_text: str) -> tuple[str, str]:
+    """Pull the minister's name out of the answer prelude and return the
+    cleaned answer body. Returns ("", answer_text) if no preamble found.
+    """
+    m = _MINISTER_NAME_RE.search(answer_text)
+    if not m:
+        return "", answer_text
+    name = (m.group("name") or "").strip()
+    body = answer_text[m.end():]
+    # Strip leftover punctuation immediately after the captured "(NAME)" —
+    # PDFs often have ":" and/or whitespace separating the prelude from
+    # the answer body. Without this, `body` starts with stray ":\n".
+    body = re.sub(r"^[\s:]+", "", body)
+    # Edge case: answers occasionally have *both* a State minister and a
+    # Cabinet minister listed in the prelude. The regex catches the first
+    # occurrence; that's fine — the second name and the answer text both
+    # remain in `body`, where they're still searchable.
+    return name, body
 
 
 def split_qa(text: str) -> QaExtraction | None:
-    """Split a Q/A PDF's full text into question + answer halves.
+    """Split a Q/A PDF's full text into question + answer halves, plus
+    structured sub-fields for semantic indexing.
 
     Returns ``None`` when no recognisable boundary marker is found. Caller
     decides what to do (skip; fall back to whole-text classification with
     lower confidence).
+
+    The four structured sub-fields (``question_subject``, ``question_stem``,
+    ``question_body``, ``answer_minister_name``, ``answer_body``) are
+    best-effort: each parser returns an empty string when its anchor
+    isn't found, in which case ``to_record()`` omits that field rather
+    than emitting an empty placeholder. Legacy ``question_text`` and
+    ``answer_text`` are always populated when the function returns a
+    non-None result.
     """
     cleaned = _clean(text)
     if not cleaned:
@@ -116,11 +253,19 @@ def split_qa(text: str) -> QaExtraction | None:
     answer = cleaned[m.end():].strip()
     if not question or not answer:
         return None
+    subject = _parse_question_subject(question)
+    stem, body = _parse_question_stem_and_body(question)
+    minister, answer_body = _parse_answer_minister_and_body(answer)
     return QaExtraction(
         question_text=question,
         answer_text=answer,
         confidence=0.85 if len(answer) > 50 else 0.5,
         boundary_marker=m.group(0).strip(),
+        question_subject=subject,
+        question_stem=stem,
+        question_body=body,
+        answer_minister_name=minister,
+        answer_body=answer_body,
     )
 
 
