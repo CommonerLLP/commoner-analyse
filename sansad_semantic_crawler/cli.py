@@ -10,6 +10,7 @@ from .export import build_summary, write_export
 from .sansad import SansadCrawler
 from .textparse import parse_corpus
 from .topics import load_topic
+from .weighting import compute_weights
 
 
 def _split_csv(value: str | None) -> list[str] | None:
@@ -167,6 +168,16 @@ def analyse_discourse_cmd(args: argparse.Namespace) -> None:
     analyse_discourse(out, refresh=args.refresh, log_fn=print)
 
 
+def analyse_weights_cmd(args: argparse.Namespace) -> None:
+    out = Path(args.out)
+    if not (out / "analysis_discourse.jsonl").exists():
+        raise SystemExit(
+            f"no analysis_discourse.jsonl at {out}/analysis_discourse.jsonl — "
+            f"run 'analyse-discourse' first"
+        )
+    compute_weights(out, topic_profile_path=args.topic, shrinkage_n0=args.shrinkage_n0, log_fn=print)
+
+
 def parse_cmd(args: argparse.Namespace) -> None:
     topic = load_topic(args.topic, classifier_override=args.classifier)
     rows = parse_corpus(topic, Path(args.out), refresh_text=args.refresh_text)
@@ -248,6 +259,28 @@ def build_parser() -> argparse.ArgumentParser:
     analyse.add_argument("--out", required=True, help="Corpus directory containing answers.jsonl")
     analyse.add_argument("--refresh", action="store_true")
     analyse.set_defaults(func=analyse_discourse_cmd)
+
+    weights = sub.add_parser(
+        "analyse-weights",
+        help=(
+            "Compute per-person and per-party weights from "
+            "analysis_discourse.jsonl + entities/. Writes "
+            "weights/{person,party}_topic.jsonl with full lineage."
+        ),
+    )
+    weights.add_argument("--out", required=True, help="Corpus directory")
+    weights.add_argument("--topic", required=True, help="Topic profile JSON (for topic_hash provenance)")
+    weights.add_argument(
+        "--shrinkage-n0",
+        type=float,
+        default=10.0,
+        help=(
+            "Bayesian shrinkage strength: pseudo-count of the party prior "
+            "in the posterior. Default 10. Higher = more conservative for "
+            "small samples (more pull toward party average). 0 = no shrinkage."
+        ),
+    )
+    weights.set_defaults(func=analyse_weights_cmd)
 
     parse = sub.add_parser("parse")
     parse.add_argument("--topic", required=True)
