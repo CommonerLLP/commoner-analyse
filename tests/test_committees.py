@@ -145,11 +145,18 @@ class ReportTypeTests(unittest.TestCase):
     def test_hyphenated_action_taken_is_atr(self):
         self.assertEqual(_report_type("Action-Taken Report on the 35th Report"), "action_taken")
 
-    def test_ordinary_title_is_original(self):
-        self.assertEqual(_report_type("Report on Demands for Grants 2026-27"), "original")
+    def test_dfg_title_classified_as_dfg(self):
+        # v0.6.3: was "original" (binary classifier); now distinguishes
+        # Demands-for-Grants reports as a first-class category.
+        self.assertEqual(
+            _report_type("Report on Demands for Grants 2026-27"),
+            "demands_for_grants",
+        )
 
-    def test_none_title_is_original(self):
-        self.assertEqual(_report_type(None), "original")
+    def test_none_title_is_other(self):
+        # v0.6.3: empty/missing titles map to "other" (was "original")
+        # so the absence of a classifier is visible to consumers.
+        self.assertEqual(_report_type(None), "other")
 
 
 class PresentedViaTests(unittest.TestCase):
@@ -264,7 +271,10 @@ class CrawlIntegrationTests(unittest.TestCase):
         self.assertEqual(by_no[35]["presented_via"], "both_houses")
         self.assertEqual(by_no[34]["presented_via"], "ls_only")
         self.assertEqual(by_no[33]["report_type"], "action_taken")
-        self.assertEqual(by_no[35]["report_type"], "original")
+        # v0.6.3: report 35 is "Demands for Grants of the Ministry of
+        # Statistics and Programme Implementation" — formerly bucketed
+        # as "original", now classified as a DFG report.
+        self.assertEqual(by_no[35]["report_type"], "demands_for_grants")
         for r in records:
             self.assertEqual(r["language_classified"], ["en"])
             self.assertEqual(r["kind"], "committee_report")
