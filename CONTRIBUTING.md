@@ -60,6 +60,53 @@ A good issue has:
 Issues that propose features without a use case attached will be
 closed.
 
+## Development setup
+
+The package requires **Python 3.11 or 3.12 or 3.13**. It runs on 3.14
+but pytest does not yet install cleanly under Python 3.14 on all
+platforms (the `__editable__` `.pth` file mechanism changed in 3.14 and
+several test-toolchain packages lag behind). Use 3.13 if you have it.
+
+**Recommended (venv):**
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[all]" pytest
+pytest -q
+```
+
+**macOS with Homebrew, system Python 3.14 as default:**
+
+`python3` on recent macOS Homebrew installs resolves to 3.14. If
+`python3 -m pytest` gives `No module named pytest` even after `pip3
+install pytest`, it means pytest installed under a different Python
+version than the one running. Fix: use the version explicitly.
+
+```bash
+# install pytest under 3.13 (adjust if 3.12 is what you have)
+pip3.13 install pytest --break-system-packages
+pip3.13 install -e . --break-system-packages
+
+# then run tests with the matching interpreter
+python3.13 -m pytest -q
+```
+
+The canonical test command for this repo on macOS is therefore:
+
+```bash
+python3.13 -m pytest tests/ -q
+```
+
+If you only have 3.14 available, a venv sidesteps the `.pth` issue:
+
+```bash
+python3.14 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[all]" pytest
+pytest -q
+```
+
 ## How to file a PR
 
 1. Fork to your own GitHub account.
@@ -67,12 +114,7 @@ closed.
    `fix/lok-sabha-empty-bucket`, `feat/standing-committee-source`,
    `docs/install-line`, `chore/gitignore-private-notes`.
 3. Make the change. Keep the diff small — one concern per PR.
-4. Run the test suite:
-   ```bash
-   python -m venv .venv
-   .venv/bin/pip install -e ".[all]" pytest
-   .venv/bin/pytest -q
-   ```
+4. Run the test suite (see **Development setup** above).
 5. If you touched any classifier mode, also run the manual integration
    smoke from `docs/INTEGRATION_SMOKE.md`. Those checks aren't
    automated because they require local model servers and downloads.
