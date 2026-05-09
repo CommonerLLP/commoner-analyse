@@ -41,7 +41,9 @@ review or LLM-tier escalation.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -49,6 +51,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib import request as _url_request
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 CLASSIFIER_VERSION = "regex_v1"
 LLM_CLASSIFIER_VERSION = "llm_discourse_v1"
@@ -359,22 +362,105 @@ def classify_response(text: str, channel: str) -> DiscourseClassification:
 # ---------------------------------------------------------------------------
 
 
+# Schemes allowed for LLM endpoints. urllib.request.urlopen also honours
+# file:// and ftp://, which would let a malicious topic-config string
+# read local files; restrict to HTTP(S) only.
+_ALLOWED_LLM_SCHEMES = frozenset({"http", "https"})
+
+
+def _validate_llm_endpoint(endpoint: str, *, allow_private: bool = True) -> None:
+    """Reject endpoint URLs that aren't HTTP(S) or that target unexpected hosts.
+
+    The default ``allow_private=True`` exists because the LLM tier is
+    designed for local Ollama (`http://localhost:11434/v1`). When the caller
+    passes ``allow_private=False`` (e.g. for a hardened deployment), private
+    IP ranges and link-local addresses are also blocked to defeat SSRF
+    against internal services.
+
+    Raises ``ValueError`` on invalid inputs; the corpus dispatcher catches
+    this and falls back to UNCLASSIFIED for the affected record.
+    """
+    parts = urlsplit(endpoint)
+    if parts.scheme not in _ALLOWED_LLM_SCHEMES:
+        raise ValueError(
+            f"LLM endpoint scheme must be one of {sorted(_ALLOWED_LLM_SCHEMES)}; "
+            f"got {parts.scheme!r}"
+        )
+    if not parts.hostname:
+        raise ValueError("LLM endpoint URL has no hostname")
+    if not allow_private:
+        host = parts.hostname
+        # Try to parse as IP literal; if that fails, fall back to a small
+        # name-based loopback check. We do the IP-literal parse separately
+        # (rather than inside try/except ValueError) so that our own
+        # "private/loopback rejected" ValueError is not mistakenly caught.
+        addr = None
+        try:
+            addr = ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        if addr is not None:
+            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                raise ValueError(
+                    f"LLM endpoint host is private/loopback; pass "
+                    "allow_private=True if intentional (e.g. local Ollama)."
+                )
+        else:
+            # Hostname (not an IP literal). Block obvious loopback names;
+            # DNS resolution of arbitrary names is the caller's
+            # responsibility for the hardened path.
+            if host in {"localhost", "ip6-localhost", "ip6-loopback"}:
+                raise ValueError(
+                    f"LLM endpoint host is loopback; pass "
+                    "allow_private=True if intentional (e.g. local Ollama)."
+                )
+
+
+def _resolve_api_key(api_key: str | None) -> str | None:
+    """Resolve ``env:VAR_NAME`` indirection; return None when no key set.
+
+    Mirrors ``classifiers.llm._chat_completions_post``'s behaviour so
+    operators can keep secrets in environment variables without putting
+    them in topic-profile JSON (which is content-hashed and travels in
+    ``_runs.jsonl``).
+    """
+    if not api_key:
+        return None
+    if api_key.startswith("env:"):
+        var = api_key[4:]
+        return os.environ.get(var)
+    return api_key
+
+
 def _discourse_http_post(
     endpoint: str,
     payload: dict[str, Any],
     *,
     timeout_s: float,
+    api_key: str | None = None,
+    allow_private: bool = True,
 ) -> str:
-    """POST to an Ollama-compatible chat completions endpoint; return raw content."""
+    """POST to an Ollama-compatible chat completions endpoint; return raw content.
+
+    Validates the endpoint scheme and (optionally) host privacy class before
+    dispatching the request. Raises ``RuntimeError`` (caught upstream) on
+    network failure; raises ``ValueError`` when the URL is rejected by the
+    safety check.
+    """
+    _validate_llm_endpoint(endpoint, allow_private=allow_private)
     base = endpoint.rstrip("/")
     url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    resolved_key = _resolve_api_key(api_key)
+    if resolved_key:
+        headers["Authorization"] = f"Bearer {resolved_key}"
     req = _url_request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer local",
-        },
+        headers=headers,
         method="POST",
     )
     try:
@@ -382,15 +468,21 @@ def _discourse_http_post(
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"].get("content") or "{}"
     except (HTTPError, URLError, TimeoutError) as exc:
-        raise RuntimeError(f"LLM endpoint unreachable: {exc}") from exc
+        raise RuntimeError(f"LLM endpoint unreachable: {type(exc).__name__}") from exc
 
 
 def _parse_llm_json(content: str) -> dict[str, Any]:
-    """Parse JSON from LLM output; falls back to extracting the first {...} block."""
+    """Parse JSON from LLM output; falls back to extracting a balanced ``{...}``
+    block if the model wraps the JSON in markdown fences or prose.
+
+    The greedy ``\\{.*\\}`` pattern handles nested objects (the prior
+    ``\\{[^{}]*\\}`` pattern broke on responses that included nested objects
+    like ``{"label": "...", "metadata": {"k": "v"}}``).
+    """
     try:
         return json.loads(content)
     except json.JSONDecodeError:
-        m = re.search(r"\{[^{}]*\}", content, re.DOTALL)
+        m = re.search(r"\{.*\}", content, re.DOTALL)
         if m:
             return json.loads(m.group(0))
         raise
@@ -403,13 +495,17 @@ def classify_response_llm(
     endpoint: str = "http://localhost:11434/v1",
     model: str = "qwen2.5:7b",
     timeout_s: float = 30.0,
-    _http_post: Callable[[str, dict[str, Any], float], str] | None = None,
+    api_key: str | None = None,
+    allow_private: bool = True,
+    _http_post: Callable[..., str] | None = None,
 ) -> DiscourseClassification:
     """LLM second-pass classifier for records the regex tier left UNCLASSIFIED.
 
     Calls an Ollama-compatible ``/v1/chat/completions`` endpoint.  Falls back
-    to UNCLASSIFIED (with an error note in ``political_function``) on any
-    network or parse failure so the corpus dispatcher never raises.
+    to UNCLASSIFIED with a *categorical* error note (no exception text) on
+    any network, parse, or validation failure so the corpus dispatcher never
+    raises and so attacker-controllable error strings never reach the public
+    ``analysis_discourse.jsonl`` output.
 
     Parameters
     ----------
@@ -418,15 +514,25 @@ def classify_response_llm(
     channel:
         ``'qa'`` or ``'committee'`` — passed to the model as a channel hint.
     endpoint:
-        Base URL of the Ollama (or OpenAI-compatible) server.
+        Base URL of the Ollama (or OpenAI-compatible) server. Must be
+        ``http://`` or ``https://``; other schemes (``file://``, ``ftp://``)
+        are rejected to defeat SSRF / local-file disclosure.
     model:
         Model name recognised by the endpoint (e.g. ``'qwen2.5:7b'``).
     timeout_s:
         HTTP request timeout in seconds.
+    api_key:
+        Bearer token for the endpoint, or ``"env:VAR_NAME"`` to read it
+        from an environment variable. ``None`` means no Authorization
+        header is sent (correct for local Ollama).
+    allow_private:
+        When False, reject loopback / private / link-local hosts even if
+        the scheme is HTTP(S). Default True to preserve the local-Ollama
+        zero-config path.
     _http_post:
         Injection point for tests. When provided, called as
-        ``_http_post(endpoint, payload, timeout_s)`` instead of the real
-        HTTP layer.
+        ``_http_post(endpoint, payload, timeout_s=..., api_key=..., allow_private=...)``
+        instead of the real HTTP layer.
     """
     if not text or not text.strip():
         return _empty_classification(channel)
@@ -448,13 +554,18 @@ def classify_response_llm(
 
     try:
         http_fn = _http_post or _discourse_http_post
-        raw_content = http_fn(endpoint, payload, timeout_s=timeout_s)
+        raw_content = http_fn(
+            endpoint, payload,
+            timeout_s=timeout_s,
+            api_key=api_key,
+            allow_private=allow_private,
+        )
         parsed = _parse_llm_json(raw_content)
         label = str(parsed.get("label") or "").strip().upper()
         if label not in DISCOURSE_LABEL_DESCRIPTIONS:
             return _empty_classification(
                 channel,
-                reason=f"LLM returned unrecognised label: {label!r}",
+                reason="LLM tier: unrecognised label returned",
             )
         reasoning = str(parsed.get("reasoning") or "")[:120]
         confidence = float(parsed.get("confidence") or 0.75)
@@ -467,10 +578,19 @@ def classify_response_llm(
             channel=channel,
             classifier=LLM_CLASSIFIER_VERSION,
         )
-    except Exception as exc:  # noqa: BLE001
+    except ValueError:
+        # Endpoint validation rejected the URL (scheme/host policy).
         return _empty_classification(
             channel,
-            reason=f"LLM tier failed: {str(exc)[:80]}",
+            reason="LLM tier: endpoint rejected by safety policy",
+        )
+    except Exception:  # noqa: BLE001
+        # Categorical error only — never leak exception text into the
+        # public corpus output. Operators can re-run with logging if they
+        # need detail; the public artifact stays clean.
+        return _empty_classification(
+            channel,
+            reason="LLM tier: classification failed",
         )
 
 
@@ -514,7 +634,9 @@ def analyse_discourse(
     llm_endpoint: str = "http://localhost:11434/v1",
     llm_model: str = "qwen2.5:7b",
     llm_timeout_s: float = 30.0,
-    _llm_http_post: Callable[[str, dict[str, Any], float], str] | None = None,
+    llm_api_key: str | None = None,
+    llm_allow_private: bool = True,
+    _llm_http_post: Callable[..., str] | None = None,
 ) -> AnalysisStats:
     """Walk ``answers.jsonl``, classify each response, write
     ``analysis_discourse.jsonl``.
@@ -575,6 +697,8 @@ def analyse_discourse(
                     endpoint=llm_endpoint,
                     model=llm_model,
                     timeout_s=llm_timeout_s,
+                    api_key=llm_api_key,
+                    allow_private=llm_allow_private,
                     _http_post=_llm_http_post,
                 )
                 rec = {
@@ -601,6 +725,8 @@ def analyse_discourse(
                     endpoint=llm_endpoint,
                     model=llm_model,
                     timeout_s=llm_timeout_s,
+                    api_key=llm_api_key,
+                    allow_private=llm_allow_private,
                     _http_post=_llm_http_post,
                 )
                 rec = {
@@ -667,7 +793,9 @@ def _maybe_llm_upgrade(
     endpoint: str,
     model: str,
     timeout_s: float,
-    _http_post: Callable[[str, dict[str, Any], float], str] | None,
+    api_key: str | None = None,
+    allow_private: bool = True,
+    _http_post: Callable[..., str] | None = None,
 ) -> DiscourseClassification:
     """If ``cls`` is UNCLASSIFIED and ``enabled``, call the LLM tier.
 
@@ -681,6 +809,8 @@ def _maybe_llm_upgrade(
         endpoint=endpoint,
         model=model,
         timeout_s=timeout_s,
+        api_key=api_key,
+        allow_private=allow_private,
         _http_post=_http_post,
     )
     if llm_cls.label != "UNCLASSIFIED":

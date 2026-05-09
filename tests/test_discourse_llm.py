@@ -39,13 +39,17 @@ from sansad_semantic_crawler.discourse import (
 
 
 def _make_http_post(label: str, confidence: float = 0.85, reasoning: str = "test") -> Any:
-    """Return a mock _http_post callable that always returns the given label."""
-    def _post(endpoint: str, payload: dict, timeout_s: float) -> str:
+    """Return a mock _http_post callable that always returns the given label.
+
+    Accepts ``**kwargs`` so future additions to the real helper signature
+    (api_key, allow_private, etc.) don't break test mocks.
+    """
+    def _post(endpoint: str, payload: dict, **kwargs: Any) -> str:
         return json.dumps({"label": label, "confidence": confidence, "reasoning": reasoning})
     return _post
 
 
-def _failing_http_post(endpoint: str, payload: dict, timeout_s: float) -> str:
+def _failing_http_post(endpoint: str, payload: dict, **kwargs: Any) -> str:
     raise RuntimeError("connection refused")
 
 
@@ -113,12 +117,13 @@ class ClassifyResponseLlmTests(unittest.TestCase):
             _http_post=_failing_http_post,
         )
         self.assertEqual(c.label, "UNCLASSIFIED")
-        self.assertIn("LLM tier failed", c.political_function)
+        # Categorical message — must not embed exception text (security).
+        self.assertIn("LLM tier", c.political_function)
 
     def test_empty_text_returns_unclassified_without_calling_llm(self):
         called = []
 
-        def _track_post(endpoint, payload, timeout_s):
+        def _track_post(endpoint, payload, **kwargs):
             called.append(True)
             return "{}"
 
@@ -162,7 +167,7 @@ class ClassifyResponseLlmTests(unittest.TestCase):
         """The payload sent to the LLM should include the channel hint."""
         captured: list[dict] = []
 
-        def _capture_post(endpoint, payload, timeout_s):
+        def _capture_post(endpoint, payload, **kwargs):
             captured.append(payload)
             return json.dumps({"label": "DEFLECTED", "confidence": 0.8})
 
@@ -189,7 +194,7 @@ class ClassifyResponseLlmTests(unittest.TestCase):
         # on positional params, so this works for both real and mock helpers).
         received_kwargs: list[dict] = []
 
-        def _kw_capturing_post(endpoint, payload, *, timeout_s):
+        def _kw_capturing_post(endpoint, payload, *, timeout_s, **_):
             received_kwargs.append({"timeout_s": timeout_s})
             return json.dumps({"label": "DEFLECTED", "confidence": 0.8})
 
@@ -259,7 +264,7 @@ class AnalyseDiscourseWithLlmTierTests(unittest.TestCase):
         """Regex-classified records must NOT be re-classified by the LLM tier."""
         llm_calls: list[bool] = []
 
-        def _track_post(endpoint, payload, timeout_s):
+        def _track_post(endpoint, payload, **kwargs):
             llm_calls.append(True)
             return json.dumps({"label": "DEFLECTED", "confidence": 0.9})
 
@@ -301,7 +306,7 @@ class AnalyseDiscourseWithLlmTierTests(unittest.TestCase):
         """Without llm_tier=True, no LLM call is made even for UNCLASSIFIED."""
         llm_calls: list[bool] = []
 
-        def _track_post(endpoint, payload, timeout_s):
+        def _track_post(endpoint, payload, **kwargs):
             llm_calls.append(True)
             return "{}"
 
@@ -354,7 +359,7 @@ class AnalyseDiscourseWithLlmTierTests(unittest.TestCase):
 
     def test_mixed_corpus_counts_correct(self):
         """Three records: one regex-hit, one LLM-upgraded, one LLM-unresolved."""
-        def _selective_post(endpoint, payload, timeout_s):
+        def _selective_post(endpoint, payload, **kwargs):
             text = payload["messages"][1]["content"]
             if "factual" in text.lower():
                 return json.dumps({"label": "FACTUAL_DISCLOSURE", "confidence": 0.85})

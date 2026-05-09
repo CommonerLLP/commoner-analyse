@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,6 +18,30 @@ if TYPE_CHECKING:
 
 def now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def safe_filename_segment(value: object) -> str:
+    """Sanitize an attacker-controllable string for use in a filesystem path.
+
+    sansad.in API responses populate fields (``reportNo``, ``uuid``,
+    ``qslno``) that are interpolated into PDF destination paths. A
+    malicious or compromised upstream returning ``"../../../evil"`` for
+    one of these would cause ``write_pdf`` to write outside the intended
+    ``pdfs/`` directory.
+
+    Replaces every character outside ``[A-Za-z0-9._-]`` with ``_``.
+    Empty / None / non-string inputs become ``"unknown"``.
+    """
+    if value is None:
+        return "unknown"
+    s = str(value).strip()
+    if not s:
+        return "unknown"
+    sanitized = re.sub(r"[^A-Za-z0-9._-]", "_", s)
+    # Defensive: strip leading dots so the segment cannot become a
+    # hidden file or a parent-directory reference even after sanitisation.
+    sanitized = sanitized.lstrip(".")
+    return sanitized or "unknown"
 
 
 def _encode_url_path(url: str) -> str:

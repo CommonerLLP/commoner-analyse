@@ -32,8 +32,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# Topic-profile keys that may carry secrets (LLM endpoints / API keys).
-_REDACT_KEYS: frozenset[str] = frozenset({"api_key", "authorization", "token"})
+# Substrings that, when present in a dict-key (case-insensitive), trigger
+# redaction in `_redact()` before the value is written to the runlog.
+# Substring-matching (rather than exact-name matching) catches the long
+# tail of credential-naming conventions: `api_key`, `apiKey`, `apikey`,
+# `OPENAI_API_KEY`, `secret`, `client_secret`, `access_token`,
+# `bearer_token`, `password`, `auth`, `credential`, etc. The runlog is
+# committed/distributed by sister projects, so missed redactions become
+# permanent leaks.
+_REDACT_SUBSTRINGS: frozenset[str] = frozenset({
+    "key", "secret", "token", "password", "auth", "bearer", "credential",
+})
 
 # Tool version pinned here rather than imported to keep this module
 # zero-dependency. Bump in lockstep with pyproject.toml.
@@ -44,11 +53,21 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _is_secret_key(key: str) -> bool:
+    """True if the key (case-insensitive) contains any redact substring."""
+    lowered = key.lower()
+    return any(s in lowered for s in _REDACT_SUBSTRINGS)
+
+
 def _redact(obj: Any) -> Any:
-    """Deep-redact any dict key in _REDACT_KEYS. Lists/scalars passed through."""
+    """Deep-redact any dict key matching a credential substring.
+
+    Lists/scalars are passed through unchanged; only dict values whose
+    key matches a credential substring are replaced with ``"<redacted>"``.
+    """
     if isinstance(obj, dict):
         return {
-            k: ("<redacted>" if k.lower() in _REDACT_KEYS else _redact(v))
+            k: ("<redacted>" if _is_secret_key(k) else _redact(v))
             for k, v in obj.items()
         }
     if isinstance(obj, list):

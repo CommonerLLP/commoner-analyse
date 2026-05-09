@@ -27,7 +27,7 @@ from typing import Any, Iterable, Iterator
 from urllib.parse import urlencode
 
 from .http_client import make_session
-from .base import BaseCrawler, now
+from .base import BaseCrawler, now, safe_filename_segment
 from .runlog import RunLog
 from .sansad import date_in_range
 from .topics import TopicProfile
@@ -377,7 +377,11 @@ class CommitteeCrawler(BaseCrawler):
                         **semantic,
                     }
                     if download and rec.get("pdf_url"):
-                        fname = f"{slug}_{self.lok_sabha_no}_{report_no}.pdf"
+                        fname = (
+                            f"{safe_filename_segment(slug)}_"
+                            f"{safe_filename_segment(self.lok_sabha_no)}_"
+                            f"{safe_filename_segment(report_no)}.pdf"
+                        )
                         pdf_path = self.pdf_dir / "ls" / fname
                         if self.write_pdf(rec["pdf_url"], pdf_path, LS_HEADERS):
                             rec["pdf_path"] = str(pdf_path.relative_to(self.out_dir))
@@ -496,7 +500,10 @@ class CommitteeCrawler(BaseCrawler):
                         **semantic,
                     }
                     if download and rec.get("pdf_url"):
-                        fname = f"{slug}_{report_no}.pdf"
+                        fname = (
+                            f"{safe_filename_segment(slug)}_"
+                            f"{safe_filename_segment(report_no)}.pdf"
+                        )
                         pdf_path = self.pdf_dir / "rs" / fname
                         if self.write_pdf(rec["pdf_url"], pdf_path, RS_HEADERS):
                             rec["pdf_path"] = str(pdf_path.relative_to(self.out_dir))
