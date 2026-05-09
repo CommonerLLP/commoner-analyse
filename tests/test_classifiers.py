@@ -140,5 +140,118 @@ class ClassifierTests(unittest.TestCase):
             build_classifier({"mode": "mystery"}, tag_rules=(), fallback_tag="topic_match")
 
 
+class RegexExcludePatternsTests(unittest.TestCase):
+    """Tests for `exclude_patterns` disambiguation in TagRule.
+
+    Surfaced 2026-05-08: a profile rule like ``\\bDRI\\b`` catches both
+    "Directorate of Revenue Intelligence" (the customs/smuggling agency)
+    and unrelated occurrences like "DRI scheme" (a banking initiative).
+    The exclude_patterns layer lets the rule author suppress the false
+    positive by naming the disambiguator.
+    """
+
+    def test_match_without_exclude_patterns_behaves_as_v0_4_0(self):
+        """Backwards compat: rules without exclude_patterns count exactly as before."""
+        rules = build_tag_rules([{"tag": "dri", "patterns": [r"\bDRI\b"]}])
+        clf = RegexClassifier(rules)
+        result = clf.classify("The DRI seized 100 kg of contraband.")
+        self.assertEqual(result.tags, ["dri"])
+        self.assertEqual(result.matches["dri"], 1.0)
+
+    def test_exclude_pattern_suppresses_match_in_window(self):
+        """The DRI-scheme false positive is exactly the case that motivated this."""
+        rules = build_tag_rules([{
+            "tag": "dri",
+            "patterns": [r"\bDRI\b"],
+            "exclude_patterns": [r"DRI\s+scheme"],
+        }])
+        clf = RegexClassifier(rules)
+        result = clf.classify("The DRI scheme was launched in 2018 by the Finance Ministry.")
+        self.assertNotIn("dri", result.tags)
+        self.assertEqual(result.matches.get("dri", 0), 0)
+
+    def test_only_the_dri_inside_dri_scheme_is_suppressed(self):
+        """Per-occurrence: only the include match contained in an exclude span
+        is suppressed. Other ``\\bDRI\\b`` matches elsewhere in the same
+        document still count.
+        """
+        text = (
+            "The DRI seized 100 kg of contraband. The DRI later confirmed "
+            "the seizure was part of an ongoing operation. (Unrelated: "
+            "the DRI scheme of the Reserve Bank of India was amended.)"
+        )
+        rules = build_tag_rules([{
+            "tag": "dri",
+            "patterns": [r"\bDRI\b"],
+            "exclude_patterns": [r"DRI\s+scheme"],
+        }])
+        clf = RegexClassifier(rules)
+        result = clf.classify(text)
+        self.assertIn("dri", result.tags)
+        # Two customs DRI mentions count; the third ("DRI scheme") is
+        # suppressed by containment in the exclude span.
+        self.assertEqual(result.matches["dri"], 2.0)
+
+    def test_partial_suppression_when_some_matches_are_near_excludes(self):
+        """Per-match suppression: each include match independently checked."""
+        rules = build_tag_rules([{
+            "tag": "dri",
+            "patterns": [r"\bDRI\b"],
+            "exclude_patterns": [r"DRI\s+scheme"],
+        }])
+        clf = RegexClassifier(rules)
+        # Two "DRI" mentions: one is in "DRI scheme" (suppressed),
+        # the other stands alone (counted).
+        result = clf.classify("DRI raids continued. Meanwhile the DRI scheme failed.")
+        self.assertEqual(result.matches["dri"], 1.0)
+
+    def test_exclude_patterns_compile_with_case_insensitive_flag(self):
+        """Exclude patterns honor IGNORECASE / DOTALL like include patterns."""
+        rules = build_tag_rules([{
+            "tag": "dri",
+            "patterns": [r"\bDRI\b"],
+            "exclude_patterns": [r"dri\s+SCHEME"],  # mixed case
+        }])
+        clf = RegexClassifier(rules)
+        result = clf.classify("The DRI Scheme was announced.")
+        self.assertNotIn("dri", result.tags)
+
+    def test_weight_applied_only_to_non_excluded_matches(self):
+        """Score = (non-excluded matches) × weight."""
+        rules = build_tag_rules([{
+            "tag": "dri",
+            "patterns": [r"\bDRI\b"],
+            "exclude_patterns": [r"DRI\s+scheme"],
+            "weight": 2.5,
+        }])
+        clf = RegexClassifier(rules)
+        result = clf.classify("DRI raids continued. The DRI scheme failed.")
+        # 1 non-excluded match × 2.5 weight = 2.5 score.
+        self.assertEqual(result.score, 2.5)
+
+    def test_multiple_include_and_exclude_patterns_per_rule(self):
+        """All include patterns + all exclude patterns interact correctly."""
+        rules = build_tag_rules([{
+            "tag": "narcotics_enforcement",
+            "patterns": [
+                r"\bDRI\b",
+                r"\bNCB\b",
+                r"Narcotics\s+Control\s+Bureau",
+            ],
+            "exclude_patterns": [
+                r"DRI\s+scheme",
+                r"NCB-(?:rated|league)",  # not the bureau, the basketball thing
+            ],
+        }])
+        clf = RegexClassifier(rules)
+        result = clf.classify(
+            "DRI and NCB jointly busted a heroin ring. The Narcotics "
+            "Control Bureau confirmed seizures. (Unrelated: DRI scheme of RBI.)"
+        )
+        # 3 valid matches: DRI (busted), NCB (jointly), Narcotics Control Bureau.
+        # 1 suppressed: DRI in "DRI scheme of RBI".
+        self.assertEqual(result.matches["narcotics_enforcement"], 3.0)
+
+
 if __name__ == "__main__":
     unittest.main()
