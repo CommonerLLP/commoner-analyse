@@ -82,6 +82,13 @@ class Run:
     ended_at: str | None = None
     added: int = 0
     errors: list[dict[str, str]] = field(default_factory=list)
+    # Per-bucket attempt log: one entry per (query, ministry) for QA crawls;
+    # one per committee for committee crawls. Schema is deliberately
+    # free-form so different crawler types can record what's relevant
+    # (raw_returned, after_date_filter, kept, skipped_seen, elapsed_ms,
+    # error). Surfaced 2026-05-08 by user audit: empty-result crawls
+    # were undebuggable from the run log.
+    bucket_attempts: list[dict[str, Any]] = field(default_factory=list)
 
 
 class RunLog:
@@ -124,6 +131,26 @@ class RunLog:
         if self._run is None:
             return
         self._run.errors.append({"where": where, "error": f"{type(exc).__name__}: {exc}"})
+
+    def record_bucket(self, **fields: Any) -> None:
+        """Append one bucket-attempt row to the active run.
+
+        ``fields`` is free-form: callers pass whichever keys are relevant
+        to their crawler kind. Conventional keys for QA crawls:
+
+          group, query, ministry, raw_returned, after_date_filter,
+          kept, skipped_seen, elapsed_ms, error
+
+        Conventional keys for committee crawls:
+
+          committee_slug, house, pages_fetched, raw_returned, kept,
+          elapsed_ms, error
+
+        No-op if no run is open.
+        """
+        if self._run is None:
+            return
+        self._run.bucket_attempts.append(dict(fields))
 
     def finish(self, *, added: int) -> None:
         if self._run is None:
