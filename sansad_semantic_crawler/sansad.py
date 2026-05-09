@@ -231,15 +231,27 @@ class SansadCrawler(BaseCrawler):
         for group, query in self.topic.searches(max_buckets):
             for ministry in self.topic.lok_sabha_ministries:
                 self.log(f"LS query={query!r} ministry={ministry}")
+                # Per-bucket counters for the audit trail. Surfaced 2026-05-08:
+                # empty-result crawls were undebuggable from _runs.jsonl alone.
+                bkt_t0 = time.monotonic()
+                bkt_raw = bkt_after_date = bkt_kept = bkt_skipped_seen = 0
+                bkt_error: str | None = None
                 try:
                     for item in self.ls_search_all(query, ministry, limit):
+                        bkt_raw += 1
                         uuid = item.get("uuid")
                         md = item.get("metadata", {})
                         date = md_value(md, "dc.date.issued")
                         qtype = md_value(md, "dc.identifier.questiontype")
                         qno = md_value(md, "dc.identifier.questionnumber")
                         key = stable_key("Lok Sabha", qtype, qno, date)
-                        if not uuid or key in seen or not date_in_range(date, from_date, to_date):
+                        if not date_in_range(date, from_date, to_date):
+                            continue
+                        bkt_after_date += 1
+                        if not uuid:
+                            continue
+                        if key in seen:
+                            bkt_skipped_seen += 1
                             continue
                         title = md_value(md, "dc.title")
                         semantic = self.topic.classify(title, query)
@@ -278,13 +290,30 @@ class SansadCrawler(BaseCrawler):
                         self.append(rec)
                         seen.add(key)
                         added += 1
+                        bkt_kept += 1
                         if max_records is not None and added >= max_records:
+                            self.runlog.record_bucket(
+                                kind="ls_qa", group=group, query=query, ministry=ministry,
+                                raw_returned=bkt_raw, after_date_filter=bkt_after_date,
+                                kept=bkt_kept, skipped_seen=bkt_skipped_seen,
+                                elapsed_ms=round((time.monotonic() - bkt_t0) * 1000, 1),
+                                error=None,
+                            )
                             self.runlog.finish(added=added)
                             return added
                         time.sleep(self.sleep)
                 except Exception as exc:  # noqa: BLE001
+                    bkt_error = f"{type(exc).__name__}: {exc}"
                     self.log(f"LS failed query={query!r} ministry={ministry}: {exc}")
                     self.runlog.record_error(where=f"ls/{ministry}/{query}", exc=exc)
+                finally:
+                    self.runlog.record_bucket(
+                        kind="ls_qa", group=group, query=query, ministry=ministry,
+                        raw_returned=bkt_raw, after_date_filter=bkt_after_date,
+                        kept=bkt_kept, skipped_seen=bkt_skipped_seen,
+                        elapsed_ms=round((time.monotonic() - bkt_t0) * 1000, 1),
+                        error=bkt_error,
+                    )
         self.runlog.finish(added=added)
         return added
 
@@ -334,23 +363,41 @@ class SansadCrawler(BaseCrawler):
         for ses_no in sessions_list:
             for ministry in ministries:
                 self.log(f"RS session={ses_no} ministry_like={ministry}%")
+                # Per-bucket counters (audit trail).
+                bkt_t0 = time.monotonic()
+                bkt_raw = bkt_after_date = bkt_kept = bkt_skipped_seen = bkt_no_match = 0
+                bkt_error: str | None = None
                 try:
                     records = self.rs_search_session(ses_no, ministry)
                 except Exception as exc:  # noqa: BLE001
+                    bkt_error = f"{type(exc).__name__}: {exc}"
                     self.log(f"RS failed session={ses_no} ministry={ministry}: {exc}")
                     self.runlog.record_error(where=f"rs/{ses_no}/{ministry}", exc=exc)
+                    self.runlog.record_bucket(
+                        kind="rs_qa", session=ses_no, ministry=ministry,
+                        raw_returned=0, after_date_filter=0, no_match=0,
+                        kept=0, skipped_seen=0,
+                        elapsed_ms=round((time.monotonic() - bkt_t0) * 1000, 1),
+                        error=bkt_error,
+                    )
                     continue
                 kept_for_bucket = 0
                 for row in records:
+                    bkt_raw += 1
                     blob = " ".join(str(row.get(k) or "") for k in ("qtitle", "qn_text", "ans_text"))
                     semantic = self.topic.classify(blob)
                     if not semantic["matches"]:
+                        bkt_no_match += 1
                         continue
                     date = rs_date_iso(row.get("ans_date"))
                     qtype = (row.get("qtype") or "").strip()
                     qno = str(row.get("qno") or "").split(".")[0]
                     key = stable_key("Rajya Sabha", qtype, qno, date)
-                    if key in seen or not date_in_range(date, from_date, to_date):
+                    if not date_in_range(date, from_date, to_date):
+                        continue
+                    bkt_after_date += 1
+                    if key in seen:
+                        bkt_skipped_seen += 1
                         continue
                     rec = {
                         "key": key,
@@ -386,12 +433,29 @@ class SansadCrawler(BaseCrawler):
                     seen.add(key)
                     added += 1
                     kept_for_bucket += 1
+                    bkt_kept += 1
                     if max_records is not None and added >= max_records:
+                        self.runlog.record_bucket(
+                            kind="rs_qa", session=ses_no, ministry=ministry,
+                            raw_returned=bkt_raw, after_date_filter=bkt_after_date,
+                            no_match=bkt_no_match, kept=bkt_kept,
+                            skipped_seen=bkt_skipped_seen,
+                            elapsed_ms=round((time.monotonic() - bkt_t0) * 1000, 1),
+                            error=None,
+                        )
                         self.runlog.finish(added=added)
                         return added
                     if limit is not None and kept_for_bucket >= limit:
                         break
                     time.sleep(self.sleep)
+                self.runlog.record_bucket(
+                    kind="rs_qa", session=ses_no, ministry=ministry,
+                    raw_returned=bkt_raw, after_date_filter=bkt_after_date,
+                    no_match=bkt_no_match, kept=bkt_kept,
+                    skipped_seen=bkt_skipped_seen,
+                    elapsed_ms=round((time.monotonic() - bkt_t0) * 1000, 1),
+                    error=None,
+                )
         self.runlog.finish(added=added)
         return added
 

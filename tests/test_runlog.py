@@ -153,5 +153,94 @@ class RunLogTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "_runs.jsonl").exists())
 
 
+class RecordBucketTests(unittest.TestCase):
+    """Per-bucket telemetry — surfaced by 2026-05-08 user audit.
+
+    Without per-bucket attempt records, an empty-result crawl is
+    indistinguishable from "API returned no rows" vs "all rows filtered
+    by date" vs "all rows already in seen." Audit trail must
+    distinguish.
+    """
+
+    def _profile(self, tmp: str) -> Path:
+        path = Path(tmp) / "topic.json"
+        path.write_text('{"name":"demo"}', encoding="utf-8")
+        return path
+
+    def test_record_bucket_appends_to_active_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = RunLog(Path(tmp))
+            log.start(
+                kind="qa", scope={}, topic_name="demo",
+                topic_path=self._profile(tmp),
+                classifier_mode="regex", classifier_config={},
+            )
+            log.record_bucket(
+                kind="ls_qa", group="smuggling", query="DRI",
+                ministry="FINANCE", raw_returned=47,
+                after_date_filter=0, kept=0, skipped_seen=0,
+                elapsed_ms=850, error=None,
+            )
+            log.finish(added=0)
+            rec = json.loads((Path(tmp) / "_runs.jsonl").read_text().splitlines()[0])
+        self.assertEqual(len(rec["bucket_attempts"]), 1)
+        bucket = rec["bucket_attempts"][0]
+        self.assertEqual(bucket["query"], "DRI")
+        self.assertEqual(bucket["ministry"], "FINANCE")
+        self.assertEqual(bucket["raw_returned"], 47)
+        self.assertEqual(bucket["after_date_filter"], 0)
+        self.assertEqual(bucket["kept"], 0)
+        self.assertIsNone(bucket["error"])
+
+    def test_multiple_record_bucket_calls_aggregate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = RunLog(Path(tmp))
+            log.start(
+                kind="qa", scope={}, topic_name="demo",
+                topic_path=self._profile(tmp),
+                classifier_mode="regex", classifier_config={},
+            )
+            for i in range(3):
+                log.record_bucket(query=f"q{i}", raw_returned=i * 10)
+            log.finish(added=0)
+            rec = json.loads((Path(tmp) / "_runs.jsonl").read_text().splitlines()[0])
+        self.assertEqual(len(rec["bucket_attempts"]), 3)
+        self.assertEqual([b["query"] for b in rec["bucket_attempts"]], ["q0", "q1", "q2"])
+
+    def test_record_bucket_without_start_is_a_noop(self):
+        """Defensive: stray record_bucket calls don't crash."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = RunLog(Path(tmp))
+            log.record_bucket(query="orphan", raw_returned=5)
+            self.assertFalse((Path(tmp) / "_runs.jsonl").exists())
+
+    def test_record_bucket_carries_error_string_when_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = RunLog(Path(tmp))
+            log.start(
+                kind="qa", scope={}, topic_name="demo",
+                topic_path=self._profile(tmp),
+                classifier_mode="regex", classifier_config={},
+            )
+            log.record_bucket(query="failing", error="ConnectionError: timeout")
+            log.finish(added=0)
+            rec = json.loads((Path(tmp) / "_runs.jsonl").read_text().splitlines()[0])
+        self.assertEqual(rec["bucket_attempts"][0]["error"], "ConnectionError: timeout")
+
+    def test_run_without_record_bucket_calls_has_empty_bucket_attempts_list(self):
+        """Backwards compat: existing call sites that don't call
+        record_bucket still produce well-formed `_runs.jsonl` entries."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = RunLog(Path(tmp))
+            log.start(
+                kind="qa", scope={}, topic_name="demo",
+                topic_path=self._profile(tmp),
+                classifier_mode="regex", classifier_config={},
+            )
+            log.finish(added=0)
+            rec = json.loads((Path(tmp) / "_runs.jsonl").read_text().splitlines()[0])
+        self.assertEqual(rec["bucket_attempts"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
