@@ -8,7 +8,7 @@ from typing import Iterable, Iterator
 from urllib.parse import urlencode
 
 from .http_client import make_session
-from .base import BaseCrawler, now
+from .base import BaseCrawler, now, safe_filename_segment
 from .runlog import RunLog
 from .topics import TopicProfile
 
@@ -280,7 +280,10 @@ class SansadCrawler(BaseCrawler):
                         if download:
                             pdf_url = self.ls_pdf_url(uuid)
                             if pdf_url:
-                                fname = f"{(qtype or 'U').upper()[:1]}{qno or 'X'}_{uuid[:8].replace('-', '')}.pdf"
+                                qtype_seg = safe_filename_segment((qtype or "U").upper()[:1])
+                                qno_seg = safe_filename_segment(qno or "X")
+                                uuid_seg = safe_filename_segment(uuid[:8].replace("-", ""))
+                                fname = f"{qtype_seg}{qno_seg}_{uuid_seg}.pdf"
                                 pdf_path = self.pdf_dir / "ls" / fname
                                 if self.write_pdf(pdf_url, pdf_path, HEADERS):
                                     rec["pdf_url"] = pdf_url
@@ -423,7 +426,10 @@ class SansadCrawler(BaseCrawler):
                         **semantic,
                     }
                     if download and rec.get("pdf_url"):
-                        fname = f"{(qtype or 'U').upper()[:1]}{qno or 'X'}_{rec.get('qslno')}.pdf"
+                        qtype_seg = safe_filename_segment((qtype or "U").upper()[:1])
+                        qno_seg = safe_filename_segment(qno or "X")
+                        qslno_seg = safe_filename_segment(rec.get("qslno"))
+                        fname = f"{qtype_seg}{qno_seg}_{qslno_seg}.pdf"
                         pdf_path = self.pdf_dir / "rs" / fname
                         if self.write_pdf(rec["pdf_url"], pdf_path, RS_HEADERS):
                             rec["pdf_path"] = str(pdf_path.relative_to(self.out_dir))

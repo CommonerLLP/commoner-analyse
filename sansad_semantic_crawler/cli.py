@@ -173,6 +173,8 @@ def analyse_discourse_cmd(args: argparse.Namespace) -> None:
         llm_endpoint=args.llm_endpoint,
         llm_model=args.llm_model,
         llm_timeout_s=args.llm_timeout,
+        llm_api_key=args.llm_api_key,
+        llm_allow_private=not args.llm_block_private,
     )
 
 
@@ -292,6 +294,25 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=30.0,
         help="HTTP timeout in seconds for each LLM request (default: 30).",
+    )
+    analyse.add_argument(
+        "--llm-api-key",
+        default=None,
+        help=(
+            "Bearer token for the LLM endpoint. Use 'env:VAR_NAME' to read "
+            "from an environment variable (recommended). Default: no auth "
+            "header sent (correct for local Ollama)."
+        ),
+    )
+    analyse.add_argument(
+        "--llm-block-private",
+        action="store_true",
+        help=(
+            "Reject loopback / private / link-local LLM endpoint hosts. "
+            "Use this for hardened deployments where the LLM tier should "
+            "only call out to public/managed endpoints. Default: allowed "
+            "so local Ollama works zero-config."
+        ),
     )
     analyse.set_defaults(func=analyse_discourse_cmd)
 
