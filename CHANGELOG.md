@@ -15,57 +15,27 @@ researchers who pin a tag and want to know what they are pinning to.
 
 This major release marks the achievement of **Technical and Theoretical Maturity** for the `sansad-semantic-crawler`. The project has been fully instrumented with the **Navayana Pragmatist** tradition (Ambedkar ↔ Dewey), transforming it from a metadata fetcher into a sophisticated **Constitutional Audit Instrument**.
 
+This release synthesizes all development since **v0.6.5**, including the `mp-dossier` and `ministry-dossier` subsystems.
+
 ### Added — The Reconstructive Audit Pipeline
 
 - **Constitutional Default Detection:** Proactively identify institutional default of Article 16 representation via the `CONSTITUTIONAL_DEFAULT` label.
 - **Instrumented Discourse Classifier (v2):** Internalized 200+ LLM-tier insights into the local Regex tier, achieving high-fidelity technical sovereignty over bureaucratic evasions (e.g., "Does not arise" chains, "Federal Deflection", "Representational Silence").
 - **ATR Linkage Engine:** Successfully closed the loop on institutional accountability by linking Action Taken Reports back to original Committee recommendations.
 - **`ministry-dossier` Audit:** Automatically generate Markdown "Charge Sheets" for Ministries, documenting categorical erasure and administrative perversion rates.
+- **`mp-dossier` Briefings:** Produce Markdown briefings covering an MP's entire question history, grouped by topic with evasion-text excerpts.
 - **Ambedkarite Agent Toolkit:** Integrated five new specialized agent skills for structural and spatial audits, grounded in Dr. Ambedkar's primary BAWS volumes.
 
 ### Refined — Extraction & Performance
 
 - **Verbatim Fidelity:** Refined ATR extraction to preserve the exact structure of ministerial replies across complex PDF layouts.
+- **Topic Clustering:** `mp-dossier` clustering uses keyword overlap on normalized `question_subject` fields for honest coverage.
 - **Technical Sovereignty:** Dramatically reduced reliance on LLM tiers for common institutional evasions by improving the autonomy of the transparent Regex tier.
 
 ### Fixed
 
 - **Structural Transparency:** Updated ignore rules to enforce "Hard Privacy," ensuring that "Internal Conceptions" and "Charge Sheets" remain local/iCloud-only.
 - **Test Alignment:** 355 tests now pass against the refined representational standards.
-
-## [0.6.6] — 2026-05-09
-
-### Added — `mp-dossier` CLI subcommand (per-MP topic briefing)
-
-Given an MP's `entity_id` (preferred) or loose `--name`, generate a
-single Markdown briefing covering their entire question history on a
-corpus, grouped by topic, with the ministerial response-label
-distribution and excerpts of evasion text per topic.
-
-```
-sansad-crawl mp-dossier --out <corpus_dir> --entity-id PERSON_xxx
-sansad-crawl mp-dossier --out <corpus_dir> --name "<surname>"
-```
-
-Output: `<corpus_dir>/mp_dossiers/<slug>.md`.
-
-Topic clustering uses keyword overlap on the v0.6.5 `question_subject`
-field, normalised by stop-word removal + sorted-token-set keying. No
-embeddings — those arrive in v0.7.0 only if v0.6.6 keyword overlap is
-demonstrably insufficient. Records without a parsed `question_subject`
-fall into a single `"Uncategorised"` bucket rather than being silently
-dropped (coverage is honest, not hidden).
-
-The dossier section heading for each topic is the most common original
-surface form across the cluster, not whichever record happened to come
-last in iteration order.
-
-### Tests
-
-22 new tests in `tests/test_dossier.py` covering topic-key
-normalisation, loose name matching, record selection by entity_id and
-name, Markdown rendering, empty-corpus handling, `mp_dossiers/` slug
-derivation, and topic-key clustering.
 
 ## [0.6.5] — 2026-05-09
 
