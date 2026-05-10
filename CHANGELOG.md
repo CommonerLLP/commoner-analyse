@@ -13,6 +13,9 @@ researchers who pin a tag and want to know what they are pinning to.
 
 Planned for the next release:
 
+- `ministry-dossier` CLI subcommand to mirror `mp-dossier` from the
+  responder side, grouping a ministry's QA record by topic with question
+  types, answering ministers, and response excerpts.
 - Channel enum + dispatch dict to replace the binary `if channel == CHANNEL_QA`
   fallthrough (architecture review finding; precondition for v0.7.0
   debate-transcript work).

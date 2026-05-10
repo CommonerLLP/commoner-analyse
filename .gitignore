@@ -8,3 +8,9 @@ build/
 
 # Internal strategy / architecture / design notes — NEVER commit.
 /notes/
+/research/
+/CLAUDE.md
+/AGENTS.md
+/CONTEXT.md
+/GEMINI.md
+/WORKING.md
