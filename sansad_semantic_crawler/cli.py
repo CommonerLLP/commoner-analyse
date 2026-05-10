@@ -8,7 +8,7 @@ from .answers import extract_answers
 from .atr_linkage import extract_atr_linkages
 from .committees import CommitteeCrawler, resolve_committees
 from .discourse import analyse_discourse
-from .dossier import build_mp_dossier
+from .dossier import build_ministry_dossier, build_mp_dossier, build_question_refinement
 from .export import build_summary, write_export
 from .sansad import SansadCrawler
 from .textparse import parse_corpus
@@ -87,6 +87,7 @@ def crawl_cmd(args: argparse.Namespace) -> None:
             seen,
             from_date=args.from_date,
             to_date=args.to_date,
+            qtype_filter=None if args.qtype == "both" else args.qtype,
             limit=args.limit,
             max_buckets=args.max_buckets,
             max_records=args.max_records,
@@ -98,6 +99,7 @@ def crawl_cmd(args: argparse.Namespace) -> None:
             sessions=parse_session_range(args.sessions),
             from_date=args.from_date,
             to_date=args.to_date,
+            qtype_filter=None if args.qtype == "both" else args.qtype,
             limit=args.limit,
             max_buckets=args.max_buckets,
             max_records=args.max_records,
@@ -230,6 +232,41 @@ def mp_dossier_cmd(args: argparse.Namespace) -> None:
     )
 
 
+def ministry_dossier_cmd(args: argparse.Namespace) -> None:
+    out = Path(args.out)
+    if not (out / "manifest.jsonl").exists():
+        raise SystemExit(f"no manifest at {out}/manifest.jsonl — run 'crawl' first")
+    if not args.ministry:
+        raise SystemExit("--ministry is required")
+    topic_path = Path(args.topic) if args.topic else None
+    build_ministry_dossier(
+        out,
+        ministry=args.ministry,
+        topic_profile_path=topic_path,
+        log_fn=print,
+    )
+
+
+def question_refine_cmd(args: argparse.Namespace) -> None:
+    out = Path(args.out)
+    if not (out / "manifest.jsonl").exists():
+        raise SystemExit(f"no manifest at {out}/manifest.jsonl — run 'crawl' first")
+    if not args.query:
+        raise SystemExit("--query is required")
+    build_question_refinement(
+        out,
+        query=args.query,
+        llm_tier=args.llm_tier,
+        endpoint=args.llm_endpoint,
+        model=args.llm_model,
+        timeout_s=args.llm_timeout,
+        api_key=args.llm_api_key,
+        allow_private=not args.llm_block_private,
+        max_precedents=args.max_precedents,
+        log_fn=print,
+    )
+
+
 def parse_cmd(args: argparse.Namespace) -> None:
     topic = load_topic(args.topic, classifier_override=args.classifier)
     rows = parse_corpus(topic, Path(args.out), refresh_text=args.refresh_text)
@@ -256,6 +293,12 @@ def build_parser() -> argparse.ArgumentParser:
     crawl.add_argument("--house", choices=["both", "ls", "rs"], default="both")
     crawl.add_argument("--from-date")
     crawl.add_argument("--to-date")
+    crawl.add_argument(
+        "--qtype",
+        choices=["both", "starred", "unstarred"],
+        default="both",
+        help="Filter to starred or unstarred questions at crawl time.",
+    )
     crawl.add_argument("--sessions", default="1-267", help="Rajya Sabha sessions, e.g. 230-267")
     crawl.add_argument("--limit", type=int, help="Max raw API records per bucket")
     crawl.add_argument("--max-buckets", type=int, help="Smoke-test brake: first N search/ministry buckets")
@@ -446,6 +489,85 @@ def build_parser() -> argparse.ArgumentParser:
         help="Topic profile JSON (recorded in dossier provenance).",
     )
     dossier.set_defaults(func=mp_dossier_cmd)
+
+    ministry_dossier = sub.add_parser(
+        "ministry-dossier",
+        help=(
+            "Generate a Markdown briefing for one ministry — every QA record "
+            "addressed to that ministry in the corpus, grouped by topic, "
+            "with question-type counts, answering-minister distribution, and "
+            "response-label excerpts. Output: ministry_dossiers/<slug>.md"
+        ),
+    )
+    ministry_dossier.add_argument("--out", required=True, help="Corpus directory")
+    ministry_dossier.add_argument(
+        "--ministry",
+        required=True,
+        help="Ministry name or loose fragment (case-insensitive substring match).",
+    )
+    ministry_dossier.add_argument(
+        "--topic",
+        help="Topic profile JSON (recorded in dossier provenance).",
+    )
+    ministry_dossier.set_defaults(func=ministry_dossier_cmd)
+
+    question_refine = sub.add_parser(
+        "question-refine",
+        help=(
+            "Refine a rough parliamentary research prompt into a structured "
+            "draft with parsed facets, answer-style risk, and corpus precedents. "
+            "Writes question_refinements/<slug>.md and .json."
+        ),
+    )
+    question_refine.add_argument("--out", required=True, help="Corpus directory")
+    question_refine.add_argument("--query", required=True, help="Free-text research prompt")
+    question_refine.add_argument(
+        "--max-precedents",
+        type=int,
+        default=5,
+        help="Maximum precedents to surface in the refinement bundle.",
+    )
+    question_refine.add_argument(
+        "--llm-tier",
+        action="store_true",
+        help="Enable LLM fallback for ambiguous facet parsing.",
+    )
+    question_refine.add_argument(
+        "--llm-endpoint",
+        default="http://localhost:11434/v1",
+        help="OpenAI-compatible chat completions base URL (default: Ollama localhost).",
+    )
+    question_refine.add_argument(
+        "--llm-model",
+        default="qwen2.5:7b",
+        help="Model name for the LLM tier (default: qwen2.5:7b).",
+    )
+    question_refine.add_argument(
+        "--llm-timeout",
+        type=float,
+        default=30.0,
+        help="HTTP timeout in seconds for each LLM request (default: 30).",
+    )
+    question_refine.add_argument(
+        "--llm-api-key",
+        default=None,
+        help=(
+            "Bearer token for the LLM endpoint. Use 'env:VAR_NAME' to read "
+            "from an environment variable (recommended). Default: no auth "
+            "header sent (correct for local Ollama)."
+        ),
+    )
+    question_refine.add_argument(
+        "--llm-block-private",
+        action="store_true",
+        help=(
+            "Reject loopback / private / link-local LLM endpoint hosts. "
+            "Use this for hardened deployments where the LLM tier should "
+            "only call out to public/managed endpoints. Default: allowed "
+            "so local Ollama works zero-config."
+        ),
+    )
+    question_refine.set_defaults(func=question_refine_cmd)
 
     parse = sub.add_parser("parse")
     parse.add_argument("--topic", required=True)

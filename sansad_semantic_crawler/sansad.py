@@ -206,6 +206,7 @@ class SansadCrawler(BaseCrawler):
         *,
         from_date: str | None,
         to_date: str | None,
+        qtype_filter: str | None,
         limit: int | None,
         max_buckets: int | None,
         max_records: int | None,
@@ -244,6 +245,8 @@ class SansadCrawler(BaseCrawler):
                         date = md_value(md, "dc.date.issued")
                         qtype = md_value(md, "dc.identifier.questiontype")
                         qno = md_value(md, "dc.identifier.questionnumber")
+                        if qtype_filter and (qtype or "").strip().lower() != qtype_filter:
+                            continue
                         key = stable_key("Lok Sabha", qtype, qno, date)
                         if not date_in_range(date, from_date, to_date):
                             continue
@@ -336,6 +339,7 @@ class SansadCrawler(BaseCrawler):
         sessions: Iterable[int],
         from_date: str | None,
         to_date: str | None,
+        qtype_filter: str | None,
         limit: int | None,
         max_buckets: int | None,
         max_records: int | None,
@@ -394,6 +398,8 @@ class SansadCrawler(BaseCrawler):
                         continue
                     date = rs_date_iso(row.get("ans_date"))
                     qtype = (row.get("qtype") or "").strip()
+                    if qtype_filter and qtype.lower() != qtype_filter:
+                        continue
                     qno = str(row.get("qno") or "").split(".")[0]
                     key = stable_key("Rajya Sabha", qtype, qno, date)
                     if not date_in_range(date, from_date, to_date):
@@ -464,4 +470,3 @@ class SansadCrawler(BaseCrawler):
                 )
         self.runlog.finish(added=added)
         return added
-

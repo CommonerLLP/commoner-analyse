@@ -211,7 +211,7 @@ class ClassifyResponseLlmTests(unittest.TestCase):
 
 class LabelTaxonomyTests(unittest.TestCase):
     def test_nine_labels_defined(self):
-        self.assertEqual(len(DISCOURSE_LABEL_DESCRIPTIONS), 9)
+        self.assertEqual(len(DISCOURSE_LABEL_DESCRIPTIONS), 13)
 
     def test_all_original_eight_labels_present(self):
         for label in (

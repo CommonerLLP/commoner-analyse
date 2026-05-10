@@ -1,13 +1,13 @@
 """Tests for the Phase 2 surface discourse classifier.
 
 Pin every label against canonical bureaucratic-register text so the
-vocabulary is stable. The eight labels are a contract for downstream
+vocabulary is stable. The discourse labels are a contract for downstream
 consumers (weighting engine, frontend); changing them later is a
 breaking change.
 
 Coverage:
 
-* Each of the eight labels matched on a worked example.
+* Each of the nine labels matched on a worked example.
 * Channel-specific patterns correctly preferred over generic ones.
 * UNCLASSIFIED returned (not raised) when no pattern matches.
 * DFG records pass through with null discourse_label (no response yet).
@@ -62,7 +62,7 @@ class ClassifyResponseLabelTests(unittest.TestCase):
             "recruitment across all Central Universities during 2023-2025."
         )
         c = classify_response(text, CHANNEL_COMMITTEE)
-        self.assertEqual(c.label, "SUBSTITUTED")
+        self.assertEqual(c.label, "CONSTITUTIONAL_DEFAULT")
 
     def test_deflected_on_under_consideration(self):
         text = (
@@ -79,6 +79,18 @@ class ClassifyResponseLabelTests(unittest.TestCase):
         )
         c = classify_response(text, CHANNEL_COMMITTEE)
         self.assertEqual(c.label, "ABSORBED")
+
+    def test_factual_disclosure_on_long_form_answer(self):
+        text = (
+            "The States/UTs are primarily responsible for prevention, detection "
+            "and investigation of cyber crime. The Central Government "
+            "supplements the initiatives of the States/UTs through advisories "
+            "and financial assistance. The number of cyber crime reporting "
+            "units has been increased and the Ministry has set up a dedicated "
+            "coordination mechanism."
+        )
+        c = classify_response(text, CHANNEL_QA)
+        self.assertEqual(c.label, "FACTUAL_DISCLOSURE")
 
     def test_data_withheld_on_qa_response(self):
         text = (

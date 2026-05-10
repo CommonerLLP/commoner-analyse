@@ -25,8 +25,12 @@ from sansad_semantic_crawler.dossier import (
     _name_matches,
     _normalize_topic_key,
     _slugify,
+    build_ministry_dossier,
     build_mp_dossier,
+    build_question_refinement,
+    find_ministry_records,
     find_mp_records,
+    parse_ministry_query,
 )
 
 
@@ -183,6 +187,99 @@ class FindMpRecordsTests(unittest.TestCase):
                 find_mp_records(out)
 
 
+class FindMinistryRecordsTests(unittest.TestCase):
+
+    def test_loose_ministry_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            _write_jsonl(out / "manifest.jsonl", [
+                {"key": "k1", "kind": "qa", "ministry": "HOME AFFAIRS",
+                 "qtype": "Starred"},
+                {"key": "k2", "kind": "qa", "ministry": "MINISTRY OF HOME AFFAIRS",
+                 "qtype": "Unstarred"},
+                {"key": "k3", "kind": "qa", "ministry": "SOCIAL JUSTICE AND EMPOWERMENT",
+                 "qtype": "Unstarred"},
+            ])
+            _write_jsonl(out / "analysis_discourse.jsonl", [])
+            _write_jsonl(out / "answers.jsonl", [])
+            triples = find_ministry_records(out, ministry="Home Affairs")
+            self.assertEqual(len(triples), 2)
+            self.assertEqual({row[0]["key"] for row in triples}, {"k1", "k2"})
+
+    def test_ministry_requires_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            _write_jsonl(out / "manifest.jsonl", [])
+            _write_jsonl(out / "analysis_discourse.jsonl", [])
+            _write_jsonl(out / "answers.jsonl", [])
+            with self.assertRaises(ValueError):
+                find_ministry_records(out, ministry="")
+
+
+class ParseMinistryQueryTests(unittest.TestCase):
+
+    def test_starred_home_affairs_since_year(self):
+        parsed = parse_ministry_query(
+            "How many starred questions have been posed to the Ministry of Home Affairs since 2023?"
+        )
+        self.assertEqual(parsed.question_types, ("starred",))
+        self.assertEqual(parsed.respondent_roles, ("cabinet", "mos"))
+        self.assertEqual(parsed.ministries, ("HOME AFFAIRS",))
+        self.assertEqual(parsed.houses, ("lok sabha", "rajya sabha"))
+        self.assertEqual(parsed.people, ())
+        self.assertEqual(parsed.date_from, "2023-01-01")
+        self.assertIsNone(parsed.date_to)
+
+    def test_amit_shah_home_and_cooperation_cabinet_only(self):
+        parsed = parse_ministry_query(
+            "Amit Shah, starred questions, Home Affairs and Cooperation, cabinet-only, since 2023"
+        )
+        self.assertEqual(parsed.question_types, ("starred",))
+        self.assertEqual(parsed.respondent_roles, ("cabinet",))
+        self.assertEqual(parsed.ministries, ("HOME AFFAIRS", "COOPERATION"))
+        self.assertEqual(parsed.people, ("Amit Shah",))
+        self.assertEqual(parsed.date_from, "2023-01-01")
+        self.assertIsNone(parsed.date_to)
+
+    def test_mos_home_date_range_and_rajya_sabha(self):
+        parsed = parse_ministry_query(
+            "unstarred questions answered by MoS Home between 2024-01-01 and 2024-12-31 in Rajya Sabha"
+        )
+        self.assertEqual(parsed.question_types, ("unstarred",))
+        self.assertEqual(parsed.respondent_roles, ("mos",))
+        self.assertEqual(parsed.ministries, ("HOME AFFAIRS",))
+        self.assertEqual(parsed.houses, ("rajya sabha",))
+        self.assertEqual(parsed.date_from, "2024-01-01")
+        self.assertEqual(parsed.date_to, "2024-12-31")
+
+
+class ParseMinistryQueryLlmTests(unittest.TestCase):
+
+    def test_llm_fills_missing_house_and_role(self):
+        def fake_http_post(*, endpoint, payload, timeout_s, api_key, allow_private):
+            self.assertEqual(endpoint, "http://localhost:11434/v1")
+            self.assertIn("messages", payload)
+            return json.dumps({
+                "respondent_roles": ["cabinet"],
+                "houses": ["lok sabha"],
+                "notes": ["fallback normalized implied house and role"],
+            })
+
+        parsed = parse_ministry_query(
+            "Amit Shah, starred questions, Home Affairs and Cooperation, since 2023",
+            llm_tier=True,
+            _http_post=fake_http_post,
+        )
+        self.assertEqual(parsed.question_types, ("starred",))
+        self.assertEqual(parsed.respondent_roles, ("cabinet",))
+        self.assertEqual(parsed.ministries, ("HOME AFFAIRS", "COOPERATION"))
+        self.assertEqual(parsed.houses, ("lok sabha",))
+        self.assertEqual(parsed.people, ("Amit Shah",))
+        self.assertEqual(parsed.date_from, "2023-01-01")
+        self.assertIsNone(parsed.date_to)
+        self.assertIn("llm fallback used", parsed.notes)
+
+
 # --------------------------------------------------------------------------- #
 # Markdown dossier integration                                                 #
 # --------------------------------------------------------------------------- #
@@ -259,7 +356,196 @@ class BuildMpDossierTests(unittest.TestCase):
             self._setup_corpus(out, manifest=[])
             path = build_mp_dossier(out, name="Nobody", log_fn=lambda *_: None)
             self.assertIsNone(path)
+
+
+class BuildMinistryDossierTests(unittest.TestCase):
+
+    def _setup_corpus(
+        self,
+        tmp: Path,
+        *,
+        manifest: list[dict],
+        discourse: list[dict] | None = None,
+        answers: list[dict] | None = None,
+    ) -> None:
+        _write_jsonl(tmp / "manifest.jsonl", manifest)
+        _write_jsonl(tmp / "analysis_discourse.jsonl", discourse or [])
+        _write_jsonl(tmp / "answers.jsonl", answers or [])
+
+    def test_ministry_dossier_renders_question_types_and_ministers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            self._setup_corpus(
+                out,
+                manifest=[
+                    {
+                        "key": "k1", "kind": "qa", "ministry": "HOME AFFAIRS",
+                        "house": "Lok Sabha", "date": "2024-01-10",
+                        "qtype": "Starred", "title": "Border security",
+                    },
+                    {
+                        "key": "k2", "kind": "qa", "ministry": "Home Affairs",
+                        "house": "Lok Sabha", "date": "2024-02-11",
+                        "qtype": "Unstarred", "title": "Police modernization",
+                    },
+                ],
+                answers=[
+                    {
+                        "key": "k1", "kind": "qa_response",
+                        "question_subject": "BORDER SECURITY",
+                        "answer_minister_name": "SHRI AMIT SHAH",
+                        "answer_body": "The Ministry has taken steps...",
+                    },
+                    {
+                        "key": "k2", "kind": "qa_response",
+                        "question_subject": "POLICE MODERNIZATION",
+                        "answer_minister_name": "SHRI NITYANAND RAI",
+                        "answer_body": "The Ministry has issued directions...",
+                    },
+                ],
+                discourse=[
+                    {"key": "k1", "label": "DEFLECTED", "channel": "qa",
+                     "text_excerpt": "The Ministry has taken steps..."},
+                    {"key": "k2", "label": "FACTUAL_DISCLOSURE", "channel": "qa",
+                     "text_excerpt": "The Ministry has issued directions..."},
+                ],
+            )
+            path = build_ministry_dossier(
+                out,
+                ministry="Home Affairs",
+                log_fn=lambda *_: None,
+            )
+            self.assertIsNotNone(path)
+            md = path.read_text()
+            self.assertIn("Ministry Dossier", md)
+            self.assertIn("HOME AFFAIRS", md)
+            self.assertIn("**Question types:** Starred (1), Unstarred (1)", md)
+            self.assertIn("SHRI AMIT SHAH", md)
+            self.assertIn("SHRI NITYANAND RAI", md)
+            self.assertIn("Border Security", md)
+            self.assertIn("Police Modernization", md)
+            self.assertIn(DOSSIER_VERSION, md)
+
+    def test_no_match_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            self._setup_corpus(out, manifest=[])
+            path = build_ministry_dossier(out, ministry="Home Affairs", log_fn=lambda *_: None)
+            self.assertIsNone(path)
             self.assertFalse((out / "mp_dossiers").exists())
+
+
+class BuildQuestionRefinementTests(unittest.TestCase):
+
+    def _setup_corpus(
+        self,
+        tmp: Path,
+        *,
+        manifest: list[dict],
+        discourse: list[dict] | None = None,
+        answers: list[dict] | None = None,
+    ) -> None:
+        _write_jsonl(tmp / "manifest.jsonl", manifest)
+        _write_jsonl(tmp / "analysis_discourse.jsonl", discourse or [])
+        _write_jsonl(tmp / "answers.jsonl", answers or [])
+
+    def test_refinement_writes_markdown_and_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            self._setup_corpus(
+                out,
+                manifest=[
+                    {
+                        "key": "k1", "kind": "qa", "ministry": "HOME AFFAIRS",
+                        "house": "Lok Sabha", "date": "2024-01-10",
+                        "qtype": "Starred", "title": "Border security",
+                    },
+                    {
+                        "key": "k2", "kind": "qa", "ministry": "HOME AFFAIRS",
+                        "house": "Lok Sabha", "date": "2024-02-11",
+                        "qtype": "Starred", "title": "Police modernization",
+                    },
+                ],
+                answers=[
+                    {
+                        "key": "k1", "kind": "qa_response",
+                        "question_subject": "BORDER SECURITY",
+                        "answer_minister_name": "SHRI AMIT SHAH",
+                        "answer_text": "THE 10TH JANUARY, 2024 ... ANSWER THE MINISTER OF HOME AFFAIRS (SHRI AMIT SHAH) ...",
+                        "answer_body": "The Ministry has approved steps...",
+                    },
+                    {
+                        "key": "k2", "kind": "qa_response",
+                        "question_subject": "POLICE MODERNIZATION",
+                        "answer_minister_name": "SHRI NITYANAND RAI",
+                        "answer_text": "THE 11TH FEBRUARY, 2024 ... ANSWER MINISTER OF STATE IN THE MINISTRY OF HOME AFFAIRS (SHRI NITYANAND RAI) ...",
+                        "answer_body": "The Ministry has issued directions...",
+                    },
+                ],
+                discourse=[
+                    {"key": "k1", "label": "ACCEPTED", "channel": "qa",
+                     "text_excerpt": "The Ministry has approved steps..."},
+                    {"key": "k2", "label": "DATA_WITHHELD", "channel": "qa",
+                     "text_excerpt": "The Ministry has issued directions..."},
+                ],
+            )
+            path = build_question_refinement(
+                out,
+                query="Amit Shah, starred questions, Home Affairs, cabinet-only, since 2024",
+                max_precedents=3,
+                log_fn=lambda *_: None,
+            )
+            self.assertIsNotNone(path)
+            md = path.read_text()
+            data = json.loads((path.with_suffix(".json")).read_text())
+            self.assertIn("Question Refinement", md)
+            self.assertIn("Parsed Facets", md)
+            self.assertIn("Cabinet Minister", md)
+            self.assertIn("Amit Shah", md)
+            self.assertEqual(data["parsed"]["question_types"], ["starred"])
+            self.assertEqual(data["parsed"]["respondent_roles"], ["cabinet"])
+            self.assertEqual(data["exact_match_count"], 1)
+            self.assertGreaterEqual(len(data["precedents"]), 1)
+            self.assertEqual(data["precedents"][0]["respondent_role"], "cabinet")
+            self.assertEqual(data["precedents"][0]["answer_minister_name"], "SHRI AMIT SHAH")
+            self.assertIn("accepted", data["risk_summary"].lower())
+
+    def test_refinement_handles_no_exact_match_with_nearest_precedents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            self._setup_corpus(
+                out,
+                manifest=[
+                    {
+                        "key": "k1", "kind": "qa", "ministry": "HOME AFFAIRS",
+                        "house": "Lok Sabha", "date": "2024-01-10",
+                        "qtype": "Starred", "title": "Border security",
+                    },
+                ],
+                answers=[
+                    {
+                        "key": "k1", "kind": "qa_response",
+                        "question_subject": "BORDER SECURITY",
+                        "answer_minister_name": "SHRI NITYANAND RAI",
+                        "answer_text": "THE 10TH JANUARY, 2024 ... ANSWER MINISTER OF STATE IN THE MINISTRY OF HOME AFFAIRS (SHRI NITYANAND RAI) ...",
+                        "answer_body": "The Ministry has taken steps...",
+                    },
+                ],
+                discourse=[
+                    {"key": "k1", "label": "FACTUAL_DISCLOSURE", "channel": "qa",
+                     "text_excerpt": "The Ministry has taken steps..."},
+                ],
+            )
+            path = build_question_refinement(
+                out,
+                query="Amit Shah, starred questions, Home Affairs, cabinet-only, since 2024",
+                max_precedents=3,
+                log_fn=lambda *_: None,
+            )
+            data = json.loads((path.with_suffix(".json")).read_text())
+            self.assertEqual(data["exact_match_count"], 0)
+            self.assertGreaterEqual(len(data["precedents"]), 1)
+            self.assertIn("No exact corpus match", data["refined_summary"])
 
     def test_uncategorised_bucket_for_records_without_subject(self):
         with tempfile.TemporaryDirectory() as tmp:

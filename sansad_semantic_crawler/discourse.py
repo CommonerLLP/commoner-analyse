@@ -4,7 +4,7 @@ Classifies a ministry response by its **actual political function**, not
 its surface politeness. Reads ``answers.jsonl`` (Phase 1 output) and
 writes ``analysis_discourse.jsonl`` (Phase 4 input).
 
-Nine discourse labels (eight regex-matched + one LLM-tier addition):
+Nine discourse labels (shared regex tier + one LLM-tier addition):
 
 * ``ACCEPTED`` — concrete commitment with specifics (rare).
 * ``DEFLECTED`` — indefinite deferral via present-continuous.
@@ -17,7 +17,8 @@ Nine discourse labels (eight regex-matched + one LLM-tier addition):
 * ``CIRCULAR_REFERENCE`` — points back to its own earlier non-answer
   (committee-specific).
 * ``FACTUAL_DISCLOSURE`` — direct factual recitation without evasion or
-  new commitment (LLM-tier only; regex does not fire this label).
+  new commitment (regex tier for long-form Q/A answers; also accepted by
+  the LLM tier).
 
 Adding a new label is **safe** (additive). Renaming or removing one is
 a **breaking change** for downstream consumers (weighting engine,
@@ -54,14 +55,18 @@ from urllib import request as _url_request
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 
-CLASSIFIER_VERSION = "regex_v1"
-LLM_CLASSIFIER_VERSION = "llm_discourse_v1"
+CLASSIFIER_VERSION = "regex_v2"
+LLM_CLASSIFIER_VERSION = "llm_discourse_v2"
 
 # Channel labels travel with each classification so cross-channel queries
 # ("how does the same ministry's evasion grammar differ between Q/A and
 # committee responses?") work without reconstruction.
 CHANNEL_QA = "qa"
 CHANNEL_COMMITTEE = "committee"
+
+
+class ConstitutionalDefaultError(Exception):
+    """Raised when an institution erases Bahujan presence via statistical forgery."""
 
 
 def _now() -> str:
@@ -93,10 +98,62 @@ _ACCEPTED = _LabelDef(
     "ACCEPTED",
     "Concrete commitment with specifics. Verify implementation timeline.",
     _compile([
-        r"(?:ministry|department|government)\s+(?:has\s+(?:decided|agreed|approved))",
+        r"(?:ministry|department|government)\s+(?:has\s+(?:decided|agreed|approved|noted))",
         r"(?:orders?|notification|circular)\s+(?:has\s+been|have\s+been)\s+(?:issued|notified)",
         r"(?:with\s+effect\s+from|w\.?e\.?f\.?)\s+\d",
-        r"(?:sanctioned|approved|allocated)\s+(?:an?\s+)?(?:amount|sum|budget)\s+of\s+Rs\.?",
+        r"(?:sanctioned|approved|allocated|released)\s+(?:an?\s+)?(?:amount|sum|budget|funds?)\s+(?:of|amounting\s+to)\s+Rs\.?",
+        r"released\s+(?:an?\s+)?amount\s+of\s+Rs\.?\s*[\d,]+",
+        r"suggestion\s+of\s+the\s+committee\s+has\s+been\s+noted",
+    ]),
+    "shared",
+)
+
+_CONSTITUTIONAL_DEFAULT = _LabelDef(
+    "CONSTITUTIONAL_DEFAULT",
+    "Institutional default of Article 16 representation. Erases Bahujan (SC/ST/OBC) presence via aggregate totals or substitution.",
+    _compile([
+        r"mission\s+mode",
+        r"total\s+(?:number\s+of\s+)?(?:appointments|recruitments)\s+(?:made|done|completed)",
+        r"no\s+separate\s+data\s+(?:for|regarding)\s+(?:SC|ST|OBC|reserved|categories)\s+is\s+maintained",
+        r"category-wise\s+(?:break-up|breakdown)\s+is\s+not\s+available",
+        r"information\s+on\s+reserved\s+categories\s+is\s+not\s+centrally\s+maintained",
+    ]),
+    "shared",
+)
+
+_FEDERAL_DEFLECTION = _LabelDef(
+    "FEDERAL_DEFLECTION",
+    "Uses federalism/State Subjects to dodge Central responsibility for national standards.",
+    _compile([
+        r"library\s+is\s+a\s+state\s+subject",
+        r"primarily\s+the\s+responsibility\s+of\s+(?:the\s+)?state\s+government",
+        r"(?:state|respective)\s+governments?\s+(?:are|is)\s+responsible",
+        r"central\s+government\s+only\s+(?:supplements|supports)",
+    ]),
+    "shared",
+)
+
+_STRUCTURAL_REFUSAL = _LabelDef(
+    "STRUCTURAL_REFUSAL",
+    "Blunt refusal to establish the 'Form of Administration' required for social democracy.",
+    _compile([
+        r"so\s+far\s+no\s+(?:\w+\s+){0,3}library\s+has\s+been\s+set\s+up",
+        r"no\s+scheme\s+for\s+(?:establishment|setting\s+up)",
+        r"govt\.?\s+has\s+not\s+approved\s+the\s+scheme",
+        r"no\s+such\s+proposal\s+is\s+under\s+consideration",
+    ]),
+    "shared",
+)
+
+_REPRESENTATIONAL_SILENCE = _LabelDef(
+    "REPRESENTATIONAL_SILENCE",
+    "Factual recitation that deliberately ignores Article 16/representation mandates.",
+    _compile([
+        r"depository\s+libraries\s+are",
+        r"functions\s+of\s+the\s+foundation\s+are",
+        r"objective\s+of\s+the\s+scheme\s+is",
+        r"members?\s+of\s+the\s+governing\s+body\b",
+        r"(?:language|state)-wise\s+statements?\s+(?:are|is)\s+(?:attached|laid)",
     ]),
     "shared",
 )
@@ -110,7 +167,9 @@ _REJECTED = _LabelDef(
         r"(?:may\s+not\s+be|is\s+not)\s+(?:feasible|desirable|appropriate|necessary)",
         r"no\s+such\s+(?:proposal|plan|scheme)\s+(?:is\s+under|exists)",
         r"does\s+not\s+arise",
+        r"\([b-z]\)\s*(?:and|&)\s*\([b-z]\)\s+Do\s+not\s+arise",
         r"constraints?\s+(?:of\s+)?(?:resources?|funds?|budget|manpower)",
+        r"govt\.?\s+has\s+not\s+approved",
     ]),
     "shared",
 )
@@ -120,9 +179,7 @@ _SUBSTITUTED = _LabelDef(
     "Replaced the question's framing with the ministry's preferred metric. "
     "The original question is unanswered.",
     _compile([
-        r"mission\s+mode",
         r"flagship\s+(?:programme|scheme|initiative)",
-        r"total\s+(?:number\s+of\s+)?(?:appointments|recruitments)\s+(?:made|done|completed)",
         r"\d[\d,]+\s+(?:posts?|positions?|vacancies)\s+(?:have\s+been|were)\s+(?:filled|recruited|appointed)",
         r"(?:under|through)\s+the\s+(?:scheme|initiative|programme)\s+of",
     ]),
@@ -137,11 +194,13 @@ _DEFLECTED = _LabelDef(
         # "under careful and ongoing review") — real ministry register often
         # qualifies rather than committing.
         r"(?:matter|issue|recommendation)\s+is\s+(?:under|being)(?:\s+\w+){0,2}\s+(?:consideration|examined|reviewed|looked\s+into)",
+        r"under\s+(?:the\s+)?process\s+of\s+(?:finali[zs]ation|consideration|implementation)",
         r"(?:steps|measures|action)\s+(?:are|is)\s+being\s+taken",
         r"(?:will\s+be|shall\s+be)\s+(?:considered|examined|taken\s+up|looked\s+into)",
         r"in\s+due\s+course",
         r"at\s+an?\s+appropriate\s+(?:time|stage|juncture)",
         r"data\s+is\s+being\s+(?:compiled|collected|tabulated)",
+        r"is\s+being\s+carried\s+out",
     ]),
     "shared",
 )
@@ -154,6 +213,35 @@ _ABSORBED = _LabelDef(
         r"noted\s+for\s+(?:future\s+)?(?:compliance|guidance|reference)",
         r"(?:ministry|department)\s+(?:agrees\s+with|appreciates)\s+the\s+(?:concern|sentiment|spirit)",
         r"in\s+(?:the\s+)?spirit\s+of\s+the\s+recommendation",
+    ]),
+    "shared",
+)
+
+# Factual disclosure: long-form, answer-the-question responses that are
+# neither evasive nor commitment-bearing. Keep this conservative and place
+# it after the evasion labels so it only fires when the answer is plainly
+# substantive.
+_FACTUAL_DISCLOSURE = _LabelDef(
+    "FACTUAL_DISCLOSURE",
+    "Direct factual recitation without evasion or new commitment.",
+    _compile([
+        r"\bnational\s+crime\s+records\s+bureau\b",
+        r"\bstates?/uts?\s+are\s+primarily\s+responsible\b",
+        r"\bcentral\s+government\s+supplements?\s+the\s+initiatives\b",
+        r"\bthe\s+government\s+is\s+aware\b",
+        r"\bthe\s+central\s+government\s+has\s+taken\s+steps\b",
+        r"\bthe\s+ministry\s+has\s+(?:already\s+)?(?:set\s+up|established|started|launched)\b",
+        r"\bthe\s+government\s+of\s+india\s+is\s+committed\b",
+        r"\bthe\s+government\s+has\s+taken\s+various\s+steps\b",
+        r"\bthe\s+government\s+effectively\s+deploys\b",
+        r"\bthe\s+number\s+of\s+(?:sanctioned\s+)?(?:posts|districts|cases|police\s+stations|towers|branches|atms|incidents|surrenders)\b",
+        r"\bthe\s+sanctioned\s+strength\b",
+        r"\bthe\s+details\s+(?:are|is)\s+as\s+under\b",
+        r"\b(?:have|has)\s+been\s+(?:opened|commissioned|released|provided|constructed|sanctioned|approved|recruited|trained)\b",
+        r"\b(?:imparts|provides)\s+(?:basic\s+)?training\b",
+        r"\bhas\s+further\s+designated\b",
+        r"\bhas\s+been\s+empowered\b",
+        r"\bthe\s+following\s+steps\s+are\s+being\s+taken\b",
     ]),
     "shared",
 )
@@ -199,18 +287,48 @@ _CIRCULAR_REFERENCE = _LabelDef(
 # Order matters: priority is highest-specificity first. Channel-specific
 # labels precede shared labels so a Q/A response containing both a
 # DATA_WITHHELD pattern and a generic DEFLECTED pattern gets the more
-# specific label.
-_PRIORITY_QA = (_DATA_WITHHELD, _SCOPE_NARROWED, _ACCEPTED, _REJECTED, _SUBSTITUTED, _DEFLECTED, _ABSORBED)
-_PRIORITY_COMMITTEE = (_CIRCULAR_REFERENCE, _ACCEPTED, _REJECTED, _SUBSTITUTED, _DEFLECTED, _ABSORBED)
+# specific label. FACTUAL_DISCLOSURE stays last so it only captures
+# answers that are substantive but not commitment-bearing.
+_PRIORITY_QA = (
+    _CONSTITUTIONAL_DEFAULT,
+    _FEDERAL_DEFLECTION,
+    _STRUCTURAL_REFUSAL,
+    _REPRESENTATIONAL_SILENCE,
+    _DATA_WITHHELD,
+    _SCOPE_NARROWED,
+    _ACCEPTED,
+    _REJECTED,
+    _SUBSTITUTED,
+    _DEFLECTED,
+    _ABSORBED,
+    _FACTUAL_DISCLOSURE,
+)
+_PRIORITY_COMMITTEE = (
+    _CONSTITUTIONAL_DEFAULT,
+    _FEDERAL_DEFLECTION,
+    _STRUCTURAL_REFUSAL,
+    _CIRCULAR_REFERENCE,
+    _ACCEPTED,
+    _REJECTED,
+    _SUBSTITUTED,
+    _DEFLECTED,
+    _ABSORBED,
+    _FACTUAL_DISCLOSURE,
+)
 
 # Confidence per label: chosen empirically. Higher means we trust the regex
 # match more strongly (less chance of false positive).
 _CONFIDENCE: dict[str, float] = {
+    "CONSTITUTIONAL_DEFAULT": 0.95,  # Highest priority: naming the default is the lab's primary task
+    "FEDERAL_DEFLECTION": 0.92,
+    "STRUCTURAL_REFUSAL": 0.90,
+    "REPRESENTATIONAL_SILENCE": 0.88,
     "ACCEPTED": 0.85,        # very specific patterns (Rs. amounts, w.e.f. dates)
     "REJECTED": 0.90,        # near-impossible to misread "does not agree"
     "SUBSTITUTED": 0.75,     # "Mission Mode" can appear as topic, not framing
     "DEFLECTED": 0.85,
     "ABSORBED": 0.80,
+    "FACTUAL_DISCLOSURE": 0.82,
     "DATA_WITHHELD": 0.85,
     "SCOPE_NARROWED": 0.85,
     "CIRCULAR_REFERENCE": 0.85,
@@ -225,6 +343,21 @@ _CONFIDENCE: dict[str, float] = {
 # prompt. Keeping these in a public dict lets callers (tests, notebooks)
 # inspect what the model is asked to decide between.
 DISCOURSE_LABEL_DESCRIPTIONS: dict[str, str] = {
+    "CONSTITUTIONAL_DEFAULT": (
+        "Institutional default of Article 16 representation: erases Bahujan (SC/ST/OBC) "
+        "presence by citing 'Mission Mode' totals, aggregate recruitments, or "
+        "explicitly stating that category-wise data is not maintained."
+    ),
+    "FEDERAL_DEFLECTION": (
+        "Dodge via federalism: claims subject is a 'State Subject' to avoid Central accountability."
+    ),
+    "STRUCTURAL_REFUSAL": (
+        "Blunt refusal: explicitly states no scheme exists or no approval has been given."
+    ),
+    "REPRESENTATIONAL_SILENCE": (
+        "Ignores representation: provides factual lists of institutions/rules while "
+        "deliberately ignoring the representational component of the query."
+    ),
     "ACCEPTED": (
         "Concrete commitment with specifics: a budget allocation, notification issued, "
         "an order with w.e.f. date, or an approved scheme with named timeline."
@@ -265,7 +398,8 @@ DISCOURSE_LABEL_DESCRIPTIONS: dict[str, str] = {
     "FACTUAL_DISCLOSURE": (
         "Direct factual recitation without evasion, new commitment, or withholding: "
         "lists programme details, district counts, budget outlays, beneficiary figures, "
-        "scheme progress. The ministry answers the question with data."
+        "scheme progress, sanctioned strength, or policy steps. The ministry answers "
+        "the question with data."
     ),
 }
 

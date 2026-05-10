@@ -84,9 +84,14 @@ class EndpointValidationTests(unittest.TestCase):
 
     def test_public_host_passes_when_allow_private_false(self):
         # If this raises, the hardened path can't reach any endpoint.
-        _validate_llm_endpoint(
-            "https://api.openai.com/v1", allow_private=False
-        )
+        fake_resolved = [(2, 1, 6, "", ("93.184.216.34", 0))]
+        with mock.patch(
+            "sansad_semantic_crawler.discourse.socket.getaddrinfo",
+            return_value=fake_resolved,
+        ):
+            _validate_llm_endpoint(
+                "https://api.openai.com/v1", allow_private=False
+            )
 
     def test_allowed_schemes_constant_is_immutable(self):
         # Must be a frozenset so a runtime mutation cannot widen the policy.
@@ -499,10 +504,10 @@ class ExceptionTextDoesNotLeakTests(unittest.TestCase):
 class DiscourseLabelTaxonomySanityTests(unittest.TestCase):
 
     def test_classifier_version_pinned(self):
-        self.assertEqual(LLM_CLASSIFIER_VERSION, "llm_discourse_v1")
+        self.assertEqual(LLM_CLASSIFIER_VERSION, "llm_discourse_v2")
 
     def test_nine_labels_in_taxonomy(self):
-        self.assertEqual(len(DISCOURSE_LABEL_DESCRIPTIONS), 9)
+        self.assertEqual(len(DISCOURSE_LABEL_DESCRIPTIONS), 13)
 
 
 if __name__ == "__main__":

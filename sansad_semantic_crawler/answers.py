@@ -274,21 +274,22 @@ def split_qa(text: str) -> QaExtraction | None:
 # -------------------------------------------------------------------------
 
 # Recommendation markers — "Recommendation No. X", "Recommendation (Sl. No. X)",
-# "Observation/Recommendation No. X". The capture group extracts the integer.
+# "Observation/Recommendation No. X", or "Recommendation \n 1.".
 _ATR_REC_RE = re.compile(
-    r"(?:Observation\s*/\s*)?Recommendation\s+(?:No\.?|Sl\.?\s*No\.?|Serial\s*No\.?)\s*(\d+)",
-    re.IGNORECASE,
+    r"(?:Observation\s*/\s*)?Recommendation\s*(?:\n|\s+)(?:No\.?|Sl\.?\s*No\.?|Serial\s*No\.?)\s*(\d+)"
+    r"|(?:\n|^)\s*Recommendation\s*\n\s*(\d+)\.",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 # Reply markers — "Reply of the Government", "Action Taken by the Government",
-# "Ministry's Reply".
+# "Ministry's Reply", "Action Taken".
 _ATR_REPLY_RE = re.compile(
     r"(?:Reply\s+of\s+the\s+Government"
     r"|Action\s+Taken\s+by\s+the\s+Government"
     r"|Action\s+Taken"
     r"|Ministry'?s\s+Reply"
     r"|Comments\s+of\s+the\s+(?:Ministry|Government))",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -320,18 +321,25 @@ def split_atr(text: str) -> list[AtrExtraction]:
     if not cleaned:
         return []
     chunks = _ATR_REC_RE.split(cleaned)
-    # split() with one capture group: [pre, num1, body1, num2, body2, ...]
-    if len(chunks) < 3:
+    # split() with N capture groups: [pre, g1, g2, ..., gn, body1, g1, g2, ..., gn, body2, ...]
+    num_groups = _ATR_REC_RE.groups
+    stride = num_groups + 1
+    if len(chunks) < stride + 1:
         return []
     out: list[AtrExtraction] = []
     i = 1
-    while i < len(chunks) - 1:
+    while i < len(chunks) - stride + 1:
+        rec_no_raw = next((c for c in chunks[i:i + num_groups] if c), None)
         try:
-            rec_no = int(chunks[i])
+            rec_no = int(rec_no_raw) if rec_no_raw else None
         except (ValueError, TypeError):
-            i += 2
+            rec_no = None
+
+        if rec_no is None:
+            i += stride
             continue
-        body = chunks[i + 1] or ""
+
+        body = chunks[i + num_groups] or ""
         # Within the body, find the "Reply ..." boundary; everything before
         # is the recommendation, everything after is the response.
         reply_m = _ATR_REPLY_RE.search(body)
@@ -351,7 +359,7 @@ def split_atr(text: str) -> list[AtrExtraction]:
                 response_text=resp_text,
                 confidence=confidence,
             ))
-        i += 2
+        i += stride
     return out
 
 
