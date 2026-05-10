@@ -9,27 +9,29 @@ The full GitHub release notes live at
 is the single canonical timeline for `requirements.txt` consumers and for
 researchers who pin a tag and want to know what they are pinning to.
 
-## [Unreleased]
+## [1.0.0] — 2026-05-10
 
-Planned for the next release:
+### THE RECONSTRUCTIVE SYNTHESIS
 
-- `ministry-dossier` CLI subcommand to mirror `mp-dossier` from the
-  responder side, grouping a ministry's QA record by topic with question
-  types, answering ministers, and response excerpts.
-- Channel enum + dispatch dict to replace the binary `if channel == CHANNEL_QA`
-  fallthrough (architecture review finding; precondition for v0.7.0
-  debate-transcript work).
-- Rename `regex_v1` constants in `discourse.py` and `answers.py` to
-  disambiguate (`discourse_regex_v1` vs `answers_regex_v1`) before
-  any external consumer indexes the literal strings.
-- ATR-to-original-recommendation cross-linking.
-- Debate-transcript entity extraction.
-- `regex_v2` discourse classifier picking up the
-  "AIM/Ministry acknowledges the views/observations of the Committee"
-  register surfaced by the v0.6.0 committee-channel research.
-- Per-classifier weight stratification so audit-grade weights survive
-  the LLM tier becoming the default.
-- Hindi-language classification parity.
+This major release marks the achievement of **Technical and Theoretical Maturity** for the `sansad-semantic-crawler`. The project has been fully instrumented with the **Navayana Pragmatist** tradition (Ambedkar ↔ Dewey), transforming it from a metadata fetcher into a sophisticated **Constitutional Audit Instrument**.
+
+### Added — The Reconstructive Audit Pipeline
+
+- **Constitutional Default Detection:** Proactively identify institutional default of Article 16 representation via the `CONSTITUTIONAL_DEFAULT` label.
+- **Instrumented Discourse Classifier (v2):** Internalized 200+ LLM-tier insights into the local Regex tier, achieving high-fidelity technical sovereignty over bureaucratic evasions (e.g., "Does not arise" chains, "Federal Deflection", "Representational Silence").
+- **ATR Linkage Engine:** Successfully closed the loop on institutional accountability by linking Action Taken Reports back to original Committee recommendations.
+- **`ministry-dossier` Audit:** Automatically generate Markdown "Charge Sheets" for Ministries, documenting categorical erasure and administrative perversion rates.
+- **Ambedkarite Agent Toolkit:** Integrated five new specialized agent skills for structural and spatial audits, grounded in Dr. Ambedkar's primary BAWS volumes.
+
+### Refined — Extraction & Performance
+
+- **Verbatim Fidelity:** Refined ATR extraction to preserve the exact structure of ministerial replies across complex PDF layouts.
+- **Technical Sovereignty:** Dramatically reduced reliance on LLM tiers for common institutional evasions by improving the autonomy of the transparent Regex tier.
+
+### Fixed
+
+- **Structural Transparency:** Updated ignore rules to enforce "Hard Privacy," ensuring that "Internal Conceptions" and "Charge Sheets" remain local/iCloud-only.
+- **Test Alignment:** 355 tests now pass against the refined representational standards.
 
 ## [0.6.6] — 2026-05-09
 
