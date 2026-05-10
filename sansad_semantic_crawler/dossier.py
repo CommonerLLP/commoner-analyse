@@ -1604,7 +1604,7 @@ def _render_dossier(
         most_ministry.update(g.ministries)
         label_total.update(g.label_counts)
 
-    # Naming the Default: An Ambedkarite Assertion
+    # Identifying Systemic Gaps: Representation Data Omission
     constitutional_defaults = label_total.get("CONSTITUTIONAL_DEFAULT", 0)
     is_institutional_default = constitutional_defaults > 0
 
@@ -1616,7 +1616,7 @@ def _render_dossier(
     lines: list[str] = []
     lines.append(f"# MP Dossier — {display_name}")
     if is_institutional_default:
-        lines.append(f"### ⚠️ CONSTITUTIONAL ALERT: Forced Representation Erasure Detected")
+        lines.append(f"### ⚠️ SYSTEMIC GAP: Representation Data Omitted")
     lines.append("")
     lines.append(f"*Generated:* {_now()}")
     if corpus_dir:
@@ -1631,7 +1631,7 @@ def _render_dossier(
     lines.append(f"- **Total questions:** {total_q}")
     lines.append(f"- **Date range:** {date_range}")
     if is_institutional_default:
-        lines.append(f"- **Constitutional Default:** This MP has triggered {constitutional_defaults} instances of Bahujan erasure.")
+        lines.append(f"- **Analytical Debt:** This MP's record includes {constitutional_defaults} instances of missing categorical data.")
     lines.append(f"- **Party (most observed):** {party}")
     lines.append(f"- **State / constituency:** {state}")
     lines.append(f"- **House:** {house}")
@@ -1783,14 +1783,14 @@ def _render_ministry_dossier(
     for _, g in sortable:
         label_total.update(g.label_counts)
 
-    # Institutional Default: An Ambedkarite Charge Sheet
+    # Identifying Systemic Gaps: Representation Data Omission
     constitutional_defaults = label_total.get("CONSTITUTIONAL_DEFAULT", 0)
     is_institutional_default = constitutional_defaults > 0
 
     lines: list[str] = []
     lines.append(f"# Ministry Dossier — {display_name}")
     if is_institutional_default:
-        lines.append(f"## 🛑 STATUS: INSTITUTIONAL DEFAULT (Article 16 Violation)")
+        lines.append(f"## 🛑 STATUS: SYSTEMIC DATA OMISSION (Article 16 Compliance)")
     lines.append("")
     lines.append(f"*Generated:* {_now()}")
     if corpus_dir:
@@ -1803,7 +1803,7 @@ def _render_ministry_dossier(
     lines.append("")
     lines.append(f"- **Total questions:** {total_q}")
     if is_institutional_default:
-        lines.append(f"- **Audit Status:** **CRITICAL**. Detected {constitutional_defaults} instances of forced categorical erasure.")
+        lines.append(f"- **Audit Status:** **CRITICAL**. Detected {constitutional_defaults} instances of missing categorical data.")
     lines.append(f"- **Date range:** {date_range}")
     lines.append(f"- **House:** {house}")
     if top_ministry[0]:

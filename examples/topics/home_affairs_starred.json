@@ -1,0 +1,77 @@
+{
+  "name": "home-affairs-starred",
+  "description": "Starred Lok Sabha Home Affairs questions derived from the copied Home Affairs corpus slice. This is a fetch profile for validating starred-question selection, answer extraction, and discourse tagging.",
+  "search_groups": {
+    "starred_home_affairs": [
+      "Naxal affected Districts",
+      "Threats Emanating from Cyber Criminals",
+      "Overcrowding in Jails",
+      "Rise in Cyber Crime Cases",
+      "Crime against SCs and STs",
+      "Strengthening DNA Analysis and Cyber Forensic Capabilities",
+      "Prevention of Cyber Attacks and Cyber Crimes",
+      "Restoration of Old Pension Scheme",
+      "Training of Coastal Police",
+      "Impact of Avalanches",
+      "Training to Instructors",
+      "Cases under NDPS Act",
+      "Personnel Strength in Bharatiya Bhasha Anubhag",
+      "Production and Trade of illegal Drugs",
+      "Damage to Crops due to Heavy Rain",
+      "Scheme Related to Security Infrastructure in LWE Affected Areas",
+      "Naxal Free India"
+    ]
+  },
+  "lok_sabha_ministries": [
+    "HOME AFFAIRS"
+  ],
+  "rajya_sabha_ministry_likes": [
+    "HOME AFFAIRS"
+  ],
+  "fallback_tag": "home_affairs_starred",
+  "tag_rules": [
+    {
+      "tag": "cyber",
+      "label": "Cyber security",
+      "weight": 2,
+      "patterns": [
+        "cyber\\s+crime",
+        "cyber\\s+attacks?",
+        "cyber\\s+forensic",
+        "digital\\s+fraud"
+      ]
+    },
+    {
+      "tag": "narcotics",
+      "label": "Narcotics / NDPS",
+      "weight": 3,
+      "patterns": [
+        "drug\\s+trafficking",
+        "narcotic",
+        "NDPS",
+        "drug\\s+abuse"
+      ]
+    },
+    {
+      "tag": "police_jails",
+      "label": "Police / jails",
+      "weight": 2,
+      "patterns": [
+        "police",
+        "jail",
+        "coastal\\s+police"
+      ]
+    },
+    {
+      "tag": "disaster",
+      "label": "Disaster / relief",
+      "weight": 2,
+      "patterns": [
+        "avalanche",
+        "heavy\\s+rain",
+        "crops",
+        "disaster"
+      ]
+    }
+  ]
+}

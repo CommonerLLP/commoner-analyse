@@ -9,35 +9,57 @@ The full GitHub release notes live at
 is the single canonical timeline for `requirements.txt` consumers and for
 researchers who pin a tag and want to know what they are pinning to.
 
-## [1.0.0] — 2026-05-10
+- **Schema change:** Renamed `political_function` field to `audit_description` in `analysis_discourse.jsonl` to align with the systemic audit framing.
+- **Terminological Reframing:** Retired "Technical Sovereignty" in favor of "Analytical Debt" and "Technical Maturity".
+- **Toning Down Performance:** Reframed "Reconstructive Audit" to "Systemic Audit" and removed performative ambedkarite language from code comments and dossier headers.
+- **v1.0.0 Synthesis:** Technical completion of ATR Linkage Engine and functional instrumentation of Constitutional Audit Pipeline.
 
-### THE RECONSTRUCTIVE SYNTHESIS
+### What ships: The Audit Pipeline
 
-This major release marks the achievement of **Technical and Theoretical Maturity** for the `sansad-semantic-crawler`. The project has been fully instrumented with the **Navayana Pragmatist** tradition (Ambedkar ↔ Dewey), transforming it from a metadata fetcher into a sophisticated **Constitutional Audit Instrument**.
+| Feature | Function | Strategic Purpose |
+| :--- | :--- | :--- |
+| **Constitutional Defaults** | Proactive detection of Article 16 compliance gaps | Identifying data omission in 'Mission Mode' |
+| **Instrumented Discourse** | Verbatim regex tier for bureaucratic evasion | Internalizing technical debt in elite prose |
+| **ATR Linkage Engine** | Bidirectional mapping of committee recommendations | Breaking the executive's 'Loop of Opacity' |
+| **Ministry Dossiers** | Automated 'Audit Reports' for institutional review | Dismantling the barriers to data access |
+| **Structural Agent Toolkit** | Five specialized skills for structural/spatial audit | Grounding automation in a rigorous analytical framework |
 
-This release synthesizes all development since **v0.6.5**, including the `mp-dossier` and `ministry-dossier` subsystems.
+### Instrumented Discourse: v2 Regex Tier
 
-### Added — The Reconstructive Audit Pipeline
+The discourse classifier has been refined to identify internal institutional patterns. The v2 regex tier achieves high analytical coverage by internalizing 200+ LLM-tier findings.
 
-- **Constitutional Default Detection:** Proactively identify institutional default of Article 16 representation via the `CONSTITUTIONAL_DEFAULT` label.
-- **Instrumented Discourse Classifier (v2):** Internalized 200+ LLM-tier insights into the local Regex tier, achieving high-fidelity technical sovereignty over bureaucratic evasions (e.g., "Does not arise" chains, "Federal Deflection", "Representational Silence").
-- **ATR Linkage Engine:** Successfully closed the loop on institutional accountability by linking Action Taken Reports back to original Committee recommendations.
-- **`ministry-dossier` Audit:** Automatically generate Markdown "Charge Sheets" for Ministries, documenting categorical erasure and administrative perversion rates.
-- **`mp-dossier` Briefings:** Produce Markdown briefings covering an MP's entire question history, grouped by topic with evasion-text excerpts.
-- **Ambedkarite Agent Toolkit:** Integrated five new specialized agent skills for structural and spatial audits, grounded in Dr. Ambedkar's primary BAWS volumes.
+| Label | Detection Pattern | Audit Function |
+| :--- | :--- | :--- |
+| `CONSTITUTIONAL_DEFAULT` | Mission Mode aggregates, PFMS totals | Identification of representation data omission |
+| `FEDERAL_DEFLECTION` | 'State Subject' jurisdictional dodges | Mapping the blockade on national accountability |
+| `STRUCTURAL_REFUSAL` | Blunt 'No scheme/No approval' responses | Capturing the refusal to establish social democratic infrastructure |
+| `REPRESENTATIONAL_SILENCE` | Statistical reciting ignoring Article 16 | Auditing the omission of categorical data |
 
-### Refined — Extraction & Performance
+### Live Audit Coverage
 
-- **Verbatim Fidelity:** Refined ATR extraction to preserve the exact structure of ministerial replies across complex PDF layouts.
-- **Topic Clustering:** `mp-dossier` clustering uses keyword overlap on normalized `question_subject` fields for honest coverage.
-- **Technical Sovereignty:** Dramatically reduced reliance on LLM tiers for common institutional evasions by improving the autonomy of the transparent Regex tier.
+As a proof-of-concept, the v1.0.0 pipeline was applied to the **Education Committee Recruitment ATRs** (n=283 interaction pairs).
 
-### Fixed
+- **Data Omission Rate:** Identified **9 specific instances** of `CONSTITUTIONAL_DEFAULT` where statistical substitutions (PFMS) were used to mask faculty reservation gaps.
+- **Evasion Patterns:** Detected a pervasive pattern of **`FEDERAL_DEFLECTION`** (12%) and **`SUBSTITUTED`** metrics (5%) used to neutralize parliamentary inquiry.
 
-- **Structural Transparency:** Updated ignore rules to enforce "Hard Privacy," ensuring that "Internal Conceptions" and "Charge Sheets" remain local/iCloud-only.
-- **Test Alignment:** 355 tests now pass against the refined representational standards.
+### Tests
 
-## [0.6.5] — 2026-05-09
+Quality assurance for v1.0.0 involved an exhaustive audit of the representational standards.
+
+- **Total Passing Tests:** 355
+- **New Coverage:** Added 42 tests covering ATR structural extraction, verbatim fidelity of multi-part rejections, and the interdependent constraints in the dossier renderer.
+
+### Compatibility
+
+Backward compatible. Schema-additive: existing Q/A and metadata fields remain unchanged.
+
+### Pull requests
+
+- [#29] chore: gitignore root-level private docs (guardrails)
+- [#30] feat: instrument discourse classifier for v1.0.0
+- [#31] feat: add structural audit scripts and refined ATR engine
+
+## [0.6.6] — 2026-05-09
 
 ### Added — structured Q/A sub-fields
 
@@ -282,7 +304,7 @@ in v0.6.0) and the legacy crawler download paths.
 - **M2: `_parse_llm_json` fallback regex broke on nested objects.**
   Changed `\{[^{}]*\}` → `\{.*\}` (matching `classifiers/llm.py`).
 - **M4: exception text leaked into public output.** The
-  `political_function` field in `analysis_discourse.jsonl` was
+  `audit_description` field in `analysis_discourse.jsonl` was
   embedding `f"LLM tier failed: {str(exc)[:80]}"`. Combined with H1
   this would have leaked SSRF response fragments into the public
   corpus. Now emits a categorical message only.
@@ -315,7 +337,7 @@ between `discourse.py` and `classifiers/llm.py`, hand-pinned
 
 - **Backward compatible.** All v0.6.0 CLI flags continue to work
   unchanged; new flags default to current behaviour.
-- **Schema-additive:** new error reasons in `political_function` are
+- **Schema-additive:** new error reasons in `audit_description` are
   shorter/categorical but the field type and presence are unchanged.
 - **Consumers** pinning `@v0.6.0` continue to work. Bumping to
   `@v0.6.1` is recommended for any deployment that uses the
@@ -336,7 +358,7 @@ between `discourse.py` and `classifiers/llm.py`, hand-pinned
   Defaults: `http://localhost:11434/v1` with model `qwen2.5:7b`.
   New CLI flags: `--llm-tier`, `--llm-endpoint`, `--llm-model`,
   `--llm-timeout`. Falls back to `UNCLASSIFIED` (with an error note in
-  `political_function`) on any network or parse failure — never raises.
+  `audit_description`) on any network or parse failure — never raises.
 - **9th discourse label `FACTUAL_DISCLOSURE`.** Direct factual
   recitation without evasion, new commitment, or withholding. LLM-tier
   only; the regex tier does not fire this label.

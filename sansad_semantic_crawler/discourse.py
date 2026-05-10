@@ -59,14 +59,14 @@ CLASSIFIER_VERSION = "regex_v2"
 LLM_CLASSIFIER_VERSION = "llm_discourse_v2"
 
 # Channel labels travel with each classification so cross-channel queries
-# ("how does the same ministry's evasion grammar differ between Q/A and
+# ("how does the same ministry's evasion patterns differ between Q/A and
 # committee responses?") work without reconstruction.
 CHANNEL_QA = "qa"
 CHANNEL_COMMITTEE = "committee"
 
 
 class ConstitutionalDefaultError(Exception):
-    """Raised when an institution erases Bahujan presence via statistical forgery."""
+    """Raised when an institution omits categorical data via aggregate totals."""
 
 
 def _now() -> str:
@@ -82,7 +82,7 @@ def _now() -> str:
 @dataclass
 class _LabelDef:
     name: str
-    political_function: str
+    audit_description: str
     patterns: tuple[re.Pattern, ...]
     channel_scope: str  # 'shared' | 'qa' | 'committee'
 
@@ -91,7 +91,7 @@ def _compile(patterns: Iterable[str]) -> tuple[re.Pattern, ...]:
     return tuple(re.compile(p, re.IGNORECASE) for p in patterns)
 
 
-# Shared evasion grammar. The same phrases appear in Q/A answers and ATR
+# Shared evasion patterns. The same phrases appear in Q/A answers and ATR
 # responses because the bureaucratic register is channel-agnostic.
 
 _ACCEPTED = _LabelDef(
@@ -110,7 +110,7 @@ _ACCEPTED = _LabelDef(
 
 _CONSTITUTIONAL_DEFAULT = _LabelDef(
     "CONSTITUTIONAL_DEFAULT",
-    "Institutional default of Article 16 representation. Erases Bahujan (SC/ST/OBC) presence via aggregate totals or substitution.",
+    "Institutional default of Article 16 representation. Omits category-wise (SC/ST/OBC) data via aggregate totals or substitution.",
     _compile([
         r"mission\s+mode",
         r"total\s+(?:number\s+of\s+)?(?:appointments|recruitments)\s+(?:made|done|completed)",
@@ -344,8 +344,8 @@ _CONFIDENCE: dict[str, float] = {
 # inspect what the model is asked to decide between.
 DISCOURSE_LABEL_DESCRIPTIONS: dict[str, str] = {
     "CONSTITUTIONAL_DEFAULT": (
-        "Institutional default of Article 16 representation: erases Bahujan (SC/ST/OBC) "
-        "presence by citing 'Mission Mode' totals, aggregate recruitments, or "
+        "Institutional default of Article 16 representation: omits category-wise (SC/ST/OBC) "
+        "data by citing 'Mission Mode' totals, aggregate recruitments, or "
         "explicitly stating that category-wise data is not maintained."
     ),
     "FEDERAL_DEFLECTION": (
@@ -442,7 +442,7 @@ class DiscourseClassification:
     label: str  # one of the nine, or "UNCLASSIFIED"
     confidence: float
     matched_pattern: str  # regex group or LLM reasoning excerpt
-    political_function: str
+    audit_description: str
     channel: str  # 'qa' | 'committee'
     classifier: str = CLASSIFIER_VERSION
 
@@ -455,7 +455,7 @@ def _empty_classification(channel: str, reason: str = "") -> DiscourseClassifica
         label="UNCLASSIFIED",
         confidence=0.0,
         matched_pattern="",
-        political_function=reason or "No pattern matched. Candidate for LLM-tier review.",
+        audit_description=reason or "No pattern matched. Candidate for LLM-tier review.",
         channel=channel,
     )
 
@@ -486,7 +486,7 @@ def classify_response(text: str, channel: str) -> DiscourseClassification:
                     label=label_def.name,
                     confidence=_CONFIDENCE[label_def.name],
                     matched_pattern=m.group(0)[:120],
-                    political_function=label_def.political_function,
+                    audit_description=label_def.audit_description,
                     channel=channel,
                 )
     return _empty_classification(channel)
@@ -762,7 +762,7 @@ def classify_response_llm(
             label=label,
             confidence=confidence,
             matched_pattern=reasoning,
-            political_function=DISCOURSE_LABEL_DESCRIPTIONS[label],
+            audit_description=DISCOURSE_LABEL_DESCRIPTIONS[label],
             channel=channel,
             classifier=LLM_CLASSIFIER_VERSION,
         )
@@ -939,7 +939,7 @@ def analyse_discourse(
                     "label": None,
                     "confidence": None,
                     "matched_pattern": None,
-                    "political_function": None,
+                    "audit_description": None,
                     "channel": "dfg",
                 }
                 out_records.append(rec)

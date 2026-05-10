@@ -209,10 +209,10 @@ class SsrfThroughClassifyResponseLlmTests(unittest.TestCase):
             endpoint="file:///etc/passwd",
         )
         self.assertEqual(c.label, "UNCLASSIFIED")
-        self.assertIn("safety policy", c.political_function)
+        self.assertIn("safety policy", c.audit_description)
         # The file:// path itself must not appear in the public output.
-        self.assertNotIn("/etc/passwd", c.political_function)
-        self.assertNotIn("file://", c.political_function)
+        self.assertNotIn("/etc/passwd", c.audit_description)
+        self.assertNotIn("file://", c.audit_description)
 
 
 # --------------------------------------------------------------------------- #
@@ -460,7 +460,7 @@ class ParseLlmJsonTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# M4 — exception text never leaks into political_function                      #
+# M4 — exception text never leaks into audit_description                      #
 # --------------------------------------------------------------------------- #
 
 
@@ -476,11 +476,11 @@ class ExceptionTextDoesNotLeakTests(unittest.TestCase):
         c = classify_response_llm("text", CHANNEL_QA, _http_post=_exploding)
         self.assertEqual(c.label, "UNCLASSIFIED")
         # The URL/secret/error must NOT leak.
-        self.assertNotIn("internal.corp", c.political_function)
-        self.assertNotIn("deploy-key", c.political_function)
-        self.assertNotIn("https://", c.political_function)
+        self.assertNotIn("internal.corp", c.audit_description)
+        self.assertNotIn("deploy-key", c.audit_description)
+        self.assertNotIn("https://", c.audit_description)
         # Categorical message is fine.
-        self.assertIn("LLM tier", c.political_function)
+        self.assertIn("LLM tier", c.audit_description)
 
     def test_unrecognised_label_does_not_leak_label_text(self):
         def _bad_label(endpoint, payload, *, timeout_s, api_key=None, allow_private=True):
@@ -492,8 +492,8 @@ class ExceptionTextDoesNotLeakTests(unittest.TestCase):
         c = classify_response_llm("text", CHANNEL_QA, _http_post=_bad_label)
         self.assertEqual(c.label, "UNCLASSIFIED")
         # The attacker-controllable label string must not be reflected.
-        self.assertNotIn("<script>", c.political_function)
-        self.assertNotIn("xss", c.political_function.lower())
+        self.assertNotIn("<script>", c.audit_description)
+        self.assertNotIn("xss", c.audit_description.lower())
 
 
 # --------------------------------------------------------------------------- #

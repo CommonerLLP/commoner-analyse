@@ -118,7 +118,7 @@ class ClassifyResponseLlmTests(unittest.TestCase):
         )
         self.assertEqual(c.label, "UNCLASSIFIED")
         # Categorical message — must not embed exception text (security).
-        self.assertIn("LLM tier", c.political_function)
+        self.assertIn("LLM tier", c.audit_description)
 
     def test_empty_text_returns_unclassified_without_calling_llm(self):
         called = []
