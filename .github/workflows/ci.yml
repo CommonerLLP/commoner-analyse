@@ -33,8 +33,8 @@ jobs:
 
       - name: Version consistency check
         run: |
-          PKG=$(python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
-          INIT=$(python -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('sansad_semantic_crawler/__init__.py').read()); print(m.group(1))")
+          PKG=$(grep '^version' pyproject.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          INIT=$(grep '__version__' sansad_semantic_crawler/__init__.py | sed 's/.*= *"\(.*\)"/\1/')
           echo "pyproject.toml: $PKG  __init__.py: $INIT"
           [ "$PKG" = "$INIT" ] || { echo "Version mismatch"; exit 1; }
 
