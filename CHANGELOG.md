@@ -9,6 +9,17 @@ The full GitHub release notes live at
 is the single canonical timeline for `requirements.txt` consumers and for
 researchers who pin a tag and want to know what they are pinning to.
 
+## [Unreleased]
+
+### Added
+
+- **Voice and agency analysis** (`discourse.py`, `aggregations.py`):
+  additive surface-analysis fields on `analysis_discourse.jsonl` —
+  `voice`, `passive_ratio`, `agent_named`, and `agent_terms` — plus
+  aggregate ministry / committee summary fields `mean_passive_ratio` and
+  `agent_named_rate`. This extends the discourse layer from *what* the
+  response does to *how* it is phrased.
+
 ## [1.1.0] — 2026-05-11
 
 ### Added

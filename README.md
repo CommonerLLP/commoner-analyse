@@ -35,10 +35,15 @@ public-interest research; commercial use is not permitted (see
 - **ATR Linkage Engine.** Automatically links Action Taken Reports back to
   original committee recommendations based on title citations, closing the
   accountability loop between instructions and executive action.
-- **Instrumented Discourse Tier (v2).** A deterministic regex classifier
-  refined through LLM-tier analysis of real-world corpora. Automatically
-  tags responses with functional labels: `CONSTITUTIONAL_DEFAULT`,
-  `FEDERAL_DEFLECTION`, `DATA_SUBSTITUTION`, and `REPRESENTATIONAL_SILENCE`.
+- **Instrumented Discourse Tier (v2).** A deterministic response classifier
+  refined through LLM-tier analysis of real-world corpora. It assigns
+  functional discourse labels such as `CONSTITUTIONAL_DEFAULT`,
+  `FEDERAL_DEFLECTION`, `DATA_WITHHELD`, `SCOPE_NARROWED`,
+  `SUBSTITUTED`, and `FACTUAL_DISCLOSURE`.
+- **Voice and Agency Analysis.** Each discourse row can also carry
+  additive surface-analysis fields describing *how* the response is
+  written: `voice` (`active` / `passive` / `mixed`), `passive_ratio`,
+  `agent_named`, and `agent_terms`.
 - Normalises every house and every kind into one JSONL manifest with a
   stable composite key, so re-running the crawler resumes cleanly from
   where it left off.
@@ -80,6 +85,121 @@ The tool's primary users are researchers building topic-specific corpora
 of parliamentary text, and the static-site builders that present those
 corpora. It is not a watchdog, a summariser, or a search engine.
 
+## Semantic analyses
+
+The package exposes three distinct analytical layers over the same
+corpus. They are intentionally separate because they answer different
+questions and produce different outputs.
+
+### 1. Topic classification (`analysis.jsonl`)
+
+This layer answers:
+
+- Is this record about the topic profile I care about?
+- Which tags or themes fired?
+
+Depending on the topic profile, the crawler can classify each crawled
+record through one of four modes:
+
+- `regex` — deterministic `tag_rules` over titles, question text, answer
+  text, or extracted text
+- `embeddings` — anchor-phrase similarity against an external Sentence
+  Transformers model
+- `llm` — JSON tagging against a chat-completions style endpoint
+- `ensemble` — unions, intersects, or weights multiple classifier members
+
+This layer writes `analysis.jsonl`. Each row is still a topic-level
+classification: `tags`, `matches`, `score`, excerpt, and any
+mode-specific metadata.
+
+### 2. Response discourse analysis (`analysis_discourse.jsonl`)
+
+This layer answers:
+
+- What is the political function of the ministry's response?
+- Is the answer substantive, evasive, withheld, or jurisdictionally
+  narrowed?
+
+It runs on extracted response text, not on raw metadata. It is produced
+by the `extract-answers` → `analyse-discourse` path and is separate from
+topic tagging.
+
+The current discourse label set is:
+
+- `CONSTITUTIONAL_DEFAULT` — category-wise representation data is omitted
+  through aggregate totals or substitution
+- `FEDERAL_DEFLECTION` — the response pushes responsibility away through
+  a "State Subject" or federalism dodge
+- `STRUCTURAL_REFUSAL` — blunt refusal; no scheme, no approval, or no
+  willingness to act
+- `REPRESENTATIONAL_SILENCE` — factual recitation that strategically
+  ignores the representational core of the question
+- `ACCEPTED` — concrete commitment with specifics, dates, approvals, or
+  allocations
+- `DEFLECTED` — indefinite deferral such as "under consideration" or
+  "steps are being taken"
+- `ABSORBED` — acknowledged without commitment; noted, appreciated, or
+  absorbed into procedure
+- `REJECTED` — flat disagreement, infeasibility, or rejection of the
+  recommendation
+- `SUBSTITUTED` — the question's metric is replaced with the ministry's
+  preferred framing
+- `DATA_WITHHELD` — the response says data is not maintained, not
+  available, or still being collected
+- `SCOPE_NARROWED` — the response narrows jurisdiction or says the matter
+  lies outside the ministry's purview
+- `CIRCULAR_REFERENCE` — the committee response points back to its own
+  earlier non-answer
+- `FACTUAL_DISCLOSURE` — direct factual answer without obvious evasion or
+  new commitment
+- `UNCLASSIFIED` — no current deterministic pattern matched
+
+Channel matters:
+
+- `qa` is used for written parliamentary question answers
+- `committee` is used for ATR / committee-response text
+- `dfg` passthrough rows carry null discourse fields because
+  recommendations exist before any response does
+
+When enabled, an optional LLM second pass only touches rows the regex
+tier left `UNCLASSIFIED`.
+
+### 3. Voice and agency surface analysis
+
+This is an additive layer on top of discourse analysis. It answers:
+
+- Is the response written in active, passive, or mixed voice?
+- Does the response name an actor, or erase one?
+
+The per-record fields are:
+
+- `voice` — `active`, `passive`, or `mixed`
+- `passive_ratio` — share of detected voice cues that are passive
+- `agent_named` — whether an institutional actor is named
+- `agent_terms` — the actor terms found, e.g. `"the Ministry"` or
+  `"the Central Government"`
+
+This layer is deterministic and dependency-free. It uses conservative
+heuristics rather than a full NLP parser so it can ship in the base
+package without introducing a heavy runtime dependency.
+
+### What the analytical layers are for
+
+- Use topic classification to decide which records belong in your corpus
+  and what themes they carry.
+- Use discourse labels to decide what kind of institutional response a
+  ministry gave.
+- Use voice and agency to decide how explicitly or evasively that
+  response is phrased at the sentence surface.
+
+Downstream commands compose these layers rather than recomputing them:
+
+- `analyse-ministry` rolls discourse labels and voice/agency up into
+  ministry-level summaries
+- `mp-summary` rolls them up by asking MP
+- `build-graph` indexes them in SQLite
+- the dossier commands turn them into Markdown briefings
+
 ## Install
 
 The package is not on PyPI yet (publication is planned for a future
@@ -112,15 +232,20 @@ clean Python 3.10+ install and falls back to `urllib` for HTTP and to
 # Core Pipeline
 sansad-crawl crawl             # Fetch metadata and PDFs
 sansad-crawl crawl-committees  # Crawl standing-committee reports
-sansad-crawl parse             # Extract and classify text
+sansad-crawl parse             # Topic classification -> analysis.jsonl
 sansad-crawl export            # Aggregate for sites
 sansad-crawl build-graph       # Ingest pipeline outputs into SQLite
 
-# Audit Subcommands
+# Response / audit pipeline
+sansad-crawl extract-answers      # Response extraction -> answers.jsonl
+sansad-crawl analyse-discourse    # Discourse + voice/agency -> analysis_discourse.jsonl
+sansad-crawl analyse-weights      # Per-person / per-party weights
+
+# Research / audit subcommands
 sansad-crawl extract-atr-linkage  # Map ATRs to original reports
 sansad-crawl mp-dossier           # Generate MP-level briefing
 sansad-crawl ministry-dossier     # Generate Ministry audit report
-sansad-crawl analyse-ministry      # Aggregate evasion patterns
+sansad-crawl analyse-ministry     # Aggregate evasion patterns
 sansad-crawl mp-summary           # Aggregate MP assertion rates
 ```
 
@@ -132,8 +257,22 @@ data/<topic>/
   _runs.jsonl          one record per crawl invocation: profile hash,
                        classifier mode, scope, counts, errors. Read this
                        to know which apparatus produced which records.
-  analysis.jsonl       parsed + scored records (after `parse`)
+  analysis.jsonl       topic-level semantic classification (after `parse`)
+  answers.jsonl        extracted question/answer or recommendation/response
+                       pairs (after `extract-answers`)
+  analysis_discourse.jsonl
+                       discourse labels + voice/agency analysis over
+                       response text (after `analyse-discourse`)
   atr_linkage.jsonl    mapped bidirectional links (after `extract-atr-linkage`)
+  mp_summary.jsonl     per-MP discourse summary (after `mp-summary`)
+  ministry_summary_qa.jsonl
+                       per-ministry Q/A discourse summary
+  ministry_summary_committee.jsonl
+                       per-committee ATR/committee discourse summary
+  weights/
+    person_topic.jsonl per-person weighted topic scores
+    party_topic.jsonl  per-party weighted topic scores
+  graph.db             SQLite read layer over outputs (after `build-graph`)
   summary.json         aggregate export (after `export`)
   pdfs/
     ls/*.pdf
@@ -167,7 +306,9 @@ verify which topic-profile bytes produced a record, look up its run.
 ## Status
 
 The full per-release timeline lives in [CHANGELOG.md](CHANGELOG.md).
-This is the **1.1.0** release.
+The latest published release is **v1.1.0**. `main` may move ahead with
+additive features before the next tag; check the changelog's
+`Unreleased` section for post-release work.
 
 ## Licence
 
