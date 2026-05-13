@@ -203,6 +203,13 @@ class VoiceAndAgencyTests(unittest.TestCase):
         self.assertLess(s.passive_ratio, 1.0)
         self.assertTrue(s.agent_named)
 
+    def test_named_agent_passive_stays_passive(self):
+        text = "The Ministry is informed that the matter is under consideration."
+        s = analyse_voice_and_agency(text)
+        self.assertEqual(s.voice, "passive")
+        self.assertGreater(s.passive_ratio, 0.5)
+        self.assertTrue(s.agent_named)
+
 
 # ---------------------------------------------------------------------------
 # Corpus dispatcher

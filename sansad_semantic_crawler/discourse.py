@@ -512,8 +512,8 @@ def _empty_classification(channel: str, reason: str = "") -> DiscourseClassifica
 
 _VOICE_AGENT_RE = re.compile(
     r"\b(?:the\s+)?(?:"
-    r"ministry(?:\s+of\s+[A-Z][A-Za-z,&\-\s]+)?|"
-    r"department(?:\s+of\s+[A-Z][A-Za-z,&\-\s]+)?|"
+    r"ministry(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
+    r"department(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
     r"central\s+government|government\s+of\s+india|government|"
     r"minister|committee|"
     r"university\s+grants\s+commission|ugc|"
@@ -525,15 +525,15 @@ _VOICE_AGENT_RE = re.compile(
 
 _VOICE_ACTIVE_RE = re.compile(
     r"\b(?:the\s+)?(?:"
-    r"ministry(?:\s+of\s+[A-Z][A-Za-z,&\-\s]+)?|"
-    r"department(?:\s+of\s+[A-Z][A-Za-z,&\-\s]+)?|"
+    r"ministry(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
+    r"department(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
     r"central\s+government|government\s+of\s+india|government|"
     r"minister|committee|"
     r"university\s+grants\s+commission|ugc|"
     r"niti\s+aayog|"
     r"foundation"
     r")\b.{0,80}?\b(?:"
-    r"has|have|had|will|shall|does|do|is|are|"
+    r"has|have|had|will|shall|does|do|"
     r"agrees?|appreciates?|takes?|reiterates?|supplements?|provides?|"
     r"launch(?:es|ed)?|states?|informs?|approves?|allocates?|releases?|"
     r"decides?|notes?|considers?|examines?|reviews?|"
