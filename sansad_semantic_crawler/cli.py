@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .acquisition_compat import warn_deprecated_acquisition
 from .aggregations import write_ministry_summary, write_mp_summary
 from .graph import build_graph
 from .answers import extract_answers
@@ -64,6 +65,7 @@ def _build_resolver_if_requested(out_dir: Path, with_entities: bool, log):
 
 
 def crawl_cmd(args: argparse.Namespace) -> None:
+    warn_deprecated_acquisition("crawl", args)
     topic = load_topic(args.topic, classifier_override=args.classifier)
     out = Path(args.out)
     if args.reset and (out / "manifest.jsonl").exists():
@@ -111,6 +113,7 @@ def crawl_cmd(args: argparse.Namespace) -> None:
 
 
 def crawl_committees_cmd(args: argparse.Namespace) -> None:
+    warn_deprecated_acquisition("crawl-committees", args)
     topic = load_topic(args.topic, classifier_override=args.classifier)
     out = Path(args.out)
     if args.reset and (out / "manifest.jsonl").exists():
@@ -293,6 +296,7 @@ def export_cmd(args: argparse.Namespace) -> None:
 
 
 def neva_crawl_cmd(args: argparse.Namespace) -> None:
+    warn_deprecated_acquisition("neva-crawl", args)
     assembly_nos = [int(x.strip()) for x in args.assemblies.split(",") if x.strip()]
     crawler = NevaStateCrawler(
         args.portal,
