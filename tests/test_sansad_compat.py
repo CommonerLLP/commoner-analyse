@@ -226,6 +226,20 @@ class FakeSansadProbe:
         }
         self.append(rec)
         seen.add(rec["key"])
+        # Mirror the real probe_rs: with filter_fn nulled by the adapter the
+        # probe records buckets at acquisition time (no_match=0, kept=acquired)
+        # and finishes with the acquired count. SSC's wrapper corrects the
+        # written total downstream.
+        self.runlog.record_bucket(
+            kind="rs_qa",
+            session=261,
+            ministry="Culture",
+            raw_returned=1,
+            after_date_filter=1,
+            no_match=0,
+            kept=1,
+            skipped_seen=0,
+        )
         self.runlog.finish(added=1)
         return 1
 
@@ -309,7 +323,7 @@ def test_delegated_sansad_ls_keeps_local_semantic_contract(tmp_path: Path) -> No
     assert row["classifier"] == "contract-regex"
 
 
-def test_sansad_rs_keeps_local_semantic_contract_when_commoner_probe_available(
+def test_sansad_rs_delegates_and_keeps_semantic_contract_when_commoner_probe_available(
     tmp_path: Path,
 ) -> None:
     def fake_import_module(name: str) -> ModuleType:
@@ -347,13 +361,15 @@ def test_sansad_rs_keeps_local_semantic_contract_when_commoner_probe_available(
         "The National Mission on Libraries supports public libraries."
     )
     assert row["found_via_query"] == "Culture"
-    assert "probed_at" not in row
-    assert row["crawled_at"]
+    # RS now delegates to commoner-probe (symmetric with LS): the probe's
+    # `probed_at` is preserved and aliased to `crawled_at`.
+    assert row["probed_at"] == "2026-06-02T12:01:00"
+    assert row["crawled_at"] == "2026-06-02T12:01:00"
     assert row["tags"] == ["nml", "public_library"]
     assert row["classifier"] == "contract-regex"
 
 
-def test_sansad_rs_no_match_preserves_local_count_parity_when_commoner_probe_available(
+def test_sansad_rs_no_match_dropped_by_semantic_filter_when_commoner_probe_available(
     tmp_path: Path,
 ) -> None:
     def fake_import_module(name: str) -> ModuleType:
@@ -382,12 +398,19 @@ def test_sansad_rs_no_match_preserves_local_count_parity_when_commoner_probe_ava
             download=False,
         )
 
+        # The semantic filter drops the non-matching row: nothing is written,
+        # the returned count and corrected run total are both 0, and the
+        # wrapper undoes the probe's `seen` entry so a re-run re-evaluates it.
         assert added == 0
         assert seen == set()
         assert not (tmp_path / "manifest.jsonl").exists()
         assert crawler.runlog.finished_added == 0
-        assert crawler.runlog.buckets[-1]["no_match"] == 1
-        assert crawler.runlog.buckets[-1]["kept"] == 0
+        # The probe records buckets at acquisition time (before SSC's
+        # append-time filter), so the per-bucket counters show the row as
+        # acquired/kept; the semantic drop is reflected only in the corrected
+        # run total above and the empty manifest, not the per-bucket numbers.
+        assert crawler.runlog.buckets[-1]["no_match"] == 0
+        assert crawler.runlog.buckets[-1]["kept"] == 1
 
 
 def test_sansad_falls_back_to_local_crawler_when_commoner_probe_is_absent(

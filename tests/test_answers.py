@@ -217,8 +217,10 @@ def _make_text_pdf(path: Path, text: str) -> None:
 class ExtractAnswersTests(unittest.TestCase):
     def setUp(self):
         # Monkey-patch extract_pdf_text to read the file's bytes directly so
-        # we don't need a real PDF binary to test the dispatcher.
-        from sansad_semantic_crawler import answers as ans_mod
+        # we don't need a real PDF binary to test the dispatcher. Extraction is
+        # delegated to commoner_probe.answers, so patch the name there (where
+        # extract_answers actually resolves it), not on the SSC re-export shim.
+        from commoner_probe import answers as ans_mod
         self._orig = ans_mod.extract_pdf_text
         def fake_extract(p):
             try:
@@ -234,7 +236,7 @@ class ExtractAnswersTests(unittest.TestCase):
         ans_mod.extract_pdf_text = fake_extract
 
     def tearDown(self):
-        from sansad_semantic_crawler import answers as ans_mod
+        from commoner_probe import answers as ans_mod
         ans_mod.extract_pdf_text = self._orig
 
     def test_dispatches_dfg_records_to_split_dfg(self):
