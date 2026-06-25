@@ -10,13 +10,16 @@ it has been removed.
 What remains here is the SSC-specific semantic layer that commoner-probe does not
 have:
 
-* ``_ProbeTopicAdapter`` nulls the probe's acquisition-time ``filter_fn`` so the
-  probe acquires every row, and SSC's richer append-time filter decides what to
-  keep.
-* ``_with_qa_semantics`` runs that append-time filter (over the full record for
-  RS) and aliases ``probed_at`` to ``crawled_at``.
-* ``_ClassifierRunLog`` records the classifier mode/config and corrects the
-  per-run ``added`` total to the count actually written after the filter.
+* ``_ProbeTopicAdapter`` installs a ``record_filter_fn`` on the topic. The probe
+  calls it after building each full record but before keeping it, so SSC's
+  classification runs at acquisition time: it tags every record and, for Rajya
+  Sabha, drops rows whose full text (title + question + answer) does not match
+  the topic. Filtering here — rather than after ``append`` — keeps the probe's
+  ``max_records`` and per-bucket ``no_match``/``kept`` counters aligned with the
+  rows actually kept. (Requires ``commoner-probe>=0.5.1``.)
+* ``append`` only aliases ``probed_at`` to ``crawled_at``; the records arrive
+  already tagged and already filtered.
+* ``_ClassifierRunLog`` records the classifier mode/config on each run.
 
 The schema/key helpers (``stable_key`` etc.) are re-exported from commoner-probe
 so existing ``from sansad_semantic_crawler.sansad import ...`` callers keep
@@ -56,30 +59,44 @@ __all__ = [
 
 
 class _ProbeTopicAdapter:
+    """Wraps a ``TopicProfile`` for the probe.
+
+    Nulls the probe's title-only ``filter_fn`` and installs a record-level
+    ``record_filter_fn`` that applies SSC's classification over the full record
+    at acquisition time.
+    """
+
     def __init__(self, topic: TopicProfile) -> None:
         self._topic = topic
         self.filter_fn = None
+        self.record_filter_fn = self._classify_and_keep
+
+    def _classify_and_keep(self, record: dict) -> bool:
+        # Called by the probe after the full record is built, before it is
+        # kept. Tags every QA record in place and decides keep/drop: Rajya
+        # Sabha rows are matched over title + question + answer (the answer text
+        # only exists post-construction, which is why this runs here and not via
+        # the probe's title-only filter_fn); Lok Sabha rows are always kept and
+        # tagged by title. Non-QA records pass through untouched.
+        if record.get("kind") != "qa":
+            return True
+        if record.get("house") == "Rajya Sabha":
+            blob = " ".join(
+                str(record.get(key) or "")
+                for key in ("title", "question_text", "answer_text")
+            )
+            semantic = self._topic.classify(blob)
+            if not semantic["matches"]:
+                return False
+        else:
+            semantic = self._topic.classify(
+                record.get("title"), record.get("found_via_query")
+            )
+        record.update(semantic)
+        return True
 
     def __getattr__(self, name: str):
         return getattr(self._topic, name)
-
-
-def _with_qa_semantics(topic: TopicProfile, record: dict) -> dict | None:
-    out = _with_crawled_at(record)
-    if out.get("kind") != "qa":
-        return out
-    if out.get("house") == "Rajya Sabha":
-        blob = " ".join(
-            str(out.get(key) or "")
-            for key in ("title", "question_text", "answer_text")
-        )
-        semantic = topic.classify(blob)
-        if not semantic["matches"]:
-            return None
-    else:
-        semantic = topic.classify(out.get("title"), out.get("found_via_query"))
-    out.update(semantic)
-    return out
 
 
 class SansadCrawler(SansadProbe):
@@ -95,13 +112,6 @@ class SansadCrawler(SansadProbe):
         classifier_mode: str = "regex",
         resolver=None,
     ):
-        self._analysis_topic = topic
-        # Bookkeeping for delegated acquisition: track how many records
-        # actually survive SSC's semantic filter (_with_qa_semantics) and
-        # which acquired keys were dropped, so crawl_rs can report the
-        # written count and undo the probe's `seen` entries for drops.
-        self._appended_count = 0
-        self._dropped_keys: list[str | None] = []
         super().__init__(
             _ProbeTopicAdapter(topic),
             Path(out_dir),
@@ -115,16 +125,12 @@ class SansadCrawler(SansadProbe):
             self.runlog,
             classifier_mode=classifier_mode,
             classifier_config=topic.classifier_config,
-            appended_counter=lambda: self._appended_count,
         )
 
     def append(self, rec: dict) -> None:
-        enriched = _with_qa_semantics(self._analysis_topic, rec)
-        if enriched is not None:
-            super().append(enriched)
-            self._appended_count += 1
-        else:
-            self._dropped_keys.append(rec.get("key"))
+        # Records arrive already tagged and filtered by the record_filter_fn;
+        # the only SSC adaptation left at write time is the crawled_at alias.
+        super().append(_with_crawled_at(rec))
 
     def crawl_ls(
         self,
@@ -138,12 +144,7 @@ class SansadCrawler(SansadProbe):
         max_records: int | None,
         download: bool,
     ) -> int:
-        # Return the count actually written, mirroring crawl_rs. The LS path
-        # never drops at append time, so this equals the probe's own count
-        # today — but measuring it the same way as crawl_rs keeps the two
-        # houses' return contract consistent.
-        before = self._appended_count
-        super().probe_ls(
+        return super().probe_ls(
             seen,
             from_date=from_date,
             to_date=to_date,
@@ -153,7 +154,6 @@ class SansadCrawler(SansadProbe):
             max_records=max_records,
             download=download,
         )
-        return self._appended_count - before
 
     def crawl_rs(
         self,
@@ -168,18 +168,7 @@ class SansadCrawler(SansadProbe):
         max_records: int | None,
         download: bool,
     ) -> int:
-        # Delegate RS acquisition to commoner-probe. The probe acquires and
-        # counts every row (its filter_fn is nulled by _ProbeTopicAdapter);
-        # SSC's richer semantic filter runs in append() over the full
-        # record (title + question + answer), dropping non-matches. Return
-        # the count actually written, and undo the probe's `seen` entries
-        # for dropped rows so a re-run re-evaluates them — matching the
-        # local crawler's contract. (The corrected per-run total is handled
-        # by _ClassifierRunLog.finish; per-bucket counters remain
-        # acquisition-level.)
-        before = self._appended_count
-        self._dropped_keys = []
-        super().probe_rs(
+        return super().probe_rs(
             seen,
             sessions=sessions,
             from_date=from_date,
@@ -190,6 +179,3 @@ class SansadCrawler(SansadProbe):
             max_records=max_records,
             download=download,
         )
-        for key in self._dropped_keys:
-            seen.discard(key)
-        return self._appended_count - before

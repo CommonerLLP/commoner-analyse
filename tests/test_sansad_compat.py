@@ -155,6 +155,7 @@ class FakeSansadProbe:
 
     def probe_ls(self, seen: set[str], **_kwargs: Any) -> int:
         assert self.topic.filter_fn is None
+        assert self.topic.record_filter_fn is not None
         self.runlog.start(
             kind="qa",
             scope={"house": "ls"},
@@ -188,6 +189,9 @@ class FakeSansadProbe:
             "language_classified": ["en"],
             "probed_at": "2026-06-02T12:00:00",
         }
+        # Mirror the real probe: the record-level filter tags every row at
+        # acquisition (LS is always kept).
+        self.topic.record_filter_fn(rec)
         self.append(rec)
         seen.add(rec["key"])
         self.runlog.finish(added=1)
@@ -195,6 +199,7 @@ class FakeSansadProbe:
 
     def probe_rs(self, seen: set[str], **_kwargs: Any) -> int:
         assert self.topic.filter_fn is None
+        assert self.topic.record_filter_fn is not None
         self.runlog.start(
             kind="qa",
             scope={"house": "rs"},
@@ -229,12 +234,24 @@ class FakeSansadProbe:
             "language_classified": ["en"],
             "probed_at": "2026-06-02T12:01:00",
         }
+        # Mirror the real probe_rs: the record-level filter runs at
+        # acquisition, so the per-bucket counters and the run total reflect
+        # kept rows. A non-matching row is dropped before append/seen/count.
+        if not self.topic.record_filter_fn(rec):
+            self.runlog.record_bucket(
+                kind="rs_qa",
+                session=261,
+                ministry="Culture",
+                raw_returned=1,
+                after_date_filter=1,
+                no_match=1,
+                kept=0,
+                skipped_seen=0,
+            )
+            self.runlog.finish(added=0)
+            return 0
         self.append(rec)
         seen.add(rec["key"])
-        # Mirror the real probe_rs: with filter_fn nulled by the adapter the
-        # probe records buckets at acquisition time (no_match=0, kept=acquired)
-        # and finishes with the acquired count. SSC's wrapper corrects the
-        # written total downstream.
         self.runlog.record_bucket(
             kind="rs_qa",
             session=261,
@@ -270,6 +287,7 @@ def test_sansad_delegates_to_commoner_probe_when_available(tmp_path: Path) -> No
         assert isinstance(crawler, FakeSansadProbe)
         assert crawler.log_path == tmp_path / "crawl.log"
         assert crawler.topic.filter_fn is None
+        assert crawler.topic.record_filter_fn is not None
 
 
 def test_delegated_sansad_ls_keeps_local_semantic_contract(tmp_path: Path) -> None:
@@ -376,16 +394,14 @@ def test_sansad_rs_no_match_dropped_by_semantic_filter_when_commoner_probe_avail
             download=False,
         )
 
-        # The semantic filter drops the non-matching row: nothing is written,
-        # the returned count and corrected run total are both 0, and the
-        # wrapper undoes the probe's `seen` entry so a re-run re-evaluates it.
+        # The record-level filter drops the non-matching row at acquisition:
+        # nothing is written, it never enters `seen`, and the run total is 0.
         assert added == 0
         assert seen == set()
         assert not (tmp_path / "manifest.jsonl").exists()
         assert crawler.runlog.finished_added == 0
-        # The probe records buckets at acquisition time (before SSC's
-        # append-time filter), so the per-bucket counters show the row as
-        # acquired/kept; the semantic drop is reflected only in the corrected
-        # run total above and the empty manifest, not the per-bucket numbers.
-        assert crawler.runlog.buckets[-1]["no_match"] == 0
-        assert crawler.runlog.buckets[-1]["kept"] == 1
+        # Because the drop happens at acquisition, the per-bucket counters now
+        # report it accurately (no_match=1, kept=0) — not as an acquired/kept
+        # row corrected only downstream.
+        assert crawler.runlog.buckets[-1]["no_match"] == 1
+        assert crawler.runlog.buckets[-1]["kept"] == 0

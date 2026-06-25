@@ -16,13 +16,15 @@ researchers who pin a tag and want to know what they are pinning to.
 ### Changed
 
 - **BREAKING — acquisition is delegated to the published `commoner-probe`
-  package, now a required dependency (`commoner-probe>=0.4.0`).** The former
+  package, now a required dependency (`commoner-probe>=0.5.1`).** The former
   "zero required third-party dependencies" guarantee no longer holds: there is
   no stdlib-only crawl path. Question (LS/RS), committee-report,
   answer-extraction, and member-roster acquisition now live in `commoner-probe`
   as the single source of truth; `sansad-semantic-crawler` keeps only its
-  semantic-classification layer, applied at append time. Consumers that pin a
-  tag must ensure `commoner-probe` is installed.
+  semantic-classification layer. For questions that layer runs at acquisition
+  time via the probe's `record_filter_fn` (new in commoner-probe 0.5.1), so
+  `--max-records` and the per-run/per-bucket counts reflect topic-matching rows.
+  Consumers that pin a tag must ensure `commoner-probe>=0.5.1` is installed.
 
 ### Added
 
