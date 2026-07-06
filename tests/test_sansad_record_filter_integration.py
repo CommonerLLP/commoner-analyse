@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from sansad_semantic_crawler.sansad import SansadCrawler
+from commoner_analyse.sansad import SansadCrawler
 
 
 class _LibraryTopic:
