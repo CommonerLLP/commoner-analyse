@@ -162,6 +162,58 @@ def crawl_committees_cmd(args: argparse.Namespace) -> None:
     crawler.log(f"DONE added={added} total={len(seen)}")
 
 
+def crawl_bills_cmd(args: argparse.Namespace) -> None:
+    # Lazy import: commoner_probe.bills ships in the probe's new-data-sources release, newer
+    # than the committee/Q-A surface. Importing here (not at module top) keeps the rest of the
+    # CLI working against an older probe — same approach as members in the entity resolver.
+    from .bills import BillsProbe
+
+    out = Path(args.out)
+    if args.reset and (out / "manifest.jsonl").exists():
+        (out / "manifest.jsonl").unlink()
+    houses = [args.house] if args.house != "both" else ["ls", "rs"]
+    probe = BillsProbe(
+        out,
+        sleep=args.sleep,
+        houses=houses,
+        bill_type=args.bill_type,
+        **({"api_url": args.api_url} if args.api_url else {}),
+    )
+    records = probe.probe(max_records=args.max_records, dry_run=args.dry_run)
+    if args.dry_run:
+        print(f"DONE bills (dry-run): {len(records)} planning record(s), nothing written")
+    else:
+        print(f"DONE bills added={len(records)} -> {out}/manifest.jsonl")
+
+
+def crawl_debates_cmd(args: argparse.Namespace) -> None:
+    from .debates import DebateProbe  # lazy — see crawl_bills_cmd
+
+    out = Path(args.out)
+    if args.reset and (out / "manifest.jsonl").exists():
+        (out / "manifest.jsonl").unlink()
+    loksabhas = [int(x) for x in (_split_csv(args.loksabhas) or ["18"])]
+    sessions = [int(x) for x in (_split_csv(args.sessions) or [])] or None
+    probe = DebateProbe(
+        out,
+        sleep=args.sleep,
+        loksabhas=loksabhas,
+        sessions=sessions,
+        from_date=args.from_date,
+        to_date=args.to_date,
+        **({"api_url": args.api_url} if args.api_url else {}),
+    )
+    records = probe.probe(
+        max_records=args.max_records,
+        download=args.download,
+        dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        print(f"DONE debates (dry-run): {len(records)} candidate record(s), nothing written")
+    else:
+        print(f"DONE debates added={len(records)} -> {out}/manifest.jsonl")
+
+
 def extract_answers_cmd(args: argparse.Namespace) -> None:
     out = Path(args.out)
     if not (out / "manifest.jsonl").exists():
@@ -364,6 +416,41 @@ def build_parser() -> argparse.ArgumentParser:
     cc.add_argument("--crawl-composition", action="store_true", help="Fetch and save committee member lists")
     cc.add_argument("--reset", action="store_true")
     cc.set_defaults(func=crawl_committees_cmd)
+
+    cb = sub.add_parser(
+        "crawl-bills",
+        help="Crawl sansad.in bills/legislation (acquisition delegated to commoner-probe)",
+    )
+    cb.add_argument("--out", required=True, help="Output corpus directory")
+    cb.add_argument("--house", choices=["both", "ls", "rs"], default="both")
+    cb.add_argument(
+        "--bill-type",
+        default="",
+        help="Filter by bill type, e.g. 'Government' or 'Private Member'; default = all types",
+    )
+    cb.add_argument("--max-records", type=int, help="Smoke-test brake: stop after N new records per house")
+    cb.add_argument("--api-url", help="Override the bills API base URL")
+    cb.add_argument("--sleep", type=float, default=0.5)
+    cb.add_argument("--reset", action="store_true")
+    cb.add_argument("--dry-run", action="store_true", help="Emit one planning record per house without fetching")
+    cb.set_defaults(func=crawl_bills_cmd)
+
+    cd = sub.add_parser(
+        "crawl-debates",
+        help="Crawl Lok Sabha per-day floor-debate transcript PDFs (delegated to commoner-probe)",
+    )
+    cd.add_argument("--out", required=True, help="Output corpus directory")
+    cd.add_argument("--loksabhas", default="18", help="Comma-separated Lok Sabha numbers, e.g. 17,18")
+    cd.add_argument("--sessions", help="Comma-separated session numbers; default = all")
+    cd.add_argument("--from-date", help="ISO date lower bound (YYYY-MM-DD)")
+    cd.add_argument("--to-date", help="ISO date upper bound (YYYY-MM-DD)")
+    cd.add_argument("--max-records", type=int, help="Smoke-test brake: stop after N new records per Lok Sabha")
+    cd.add_argument("--download", action="store_true", help="Download each day's transcript PDF (+ sha256)")
+    cd.add_argument("--api-url", help="Override the debate API base URL")
+    cd.add_argument("--sleep", type=float, default=0.5)
+    cd.add_argument("--reset", action="store_true")
+    cd.add_argument("--dry-run", action="store_true", help="List candidate sitting dates without fetching per-day PDFs")
+    cd.set_defaults(func=crawl_debates_cmd)
 
     extract = sub.add_parser(
         "extract-answers",

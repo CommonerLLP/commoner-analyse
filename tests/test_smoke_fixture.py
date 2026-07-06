@@ -34,8 +34,11 @@ RAW = FIXTURE / "raw"
 TOPIC = ROOT / "examples" / "topics" / "libraries.json"
 
 # Fields that vary between runs even with identical input. Strip before
-# comparing so the fixture stays byte-stable.
-VOLATILE_FIELDS = frozenset({"run_id", "crawled_at", "elapsed_ms"})
+# comparing so the fixture stays byte-stable. `probed_at` is the
+# commoner-probe acquisition timestamp (analogous to `crawled_at`) emitted
+# once committee acquisition is delegated to commoner-probe; it is volatile
+# and cannot be pinned in the frozen fixture.
+VOLATILE_FIELDS = frozenset({"run_id", "crawled_at", "elapsed_ms", "probed_at"})
 
 
 class _FakeResponse:

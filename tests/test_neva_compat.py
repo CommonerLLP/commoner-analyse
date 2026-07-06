@@ -4,12 +4,10 @@ import importlib
 import sys
 import types
 import unittest.mock as mock
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
-
-import pytest
 
 
 REAL_IMPORT_MODULE = importlib.import_module
@@ -17,14 +15,20 @@ TARGET_MODULE = "sansad_semantic_crawler.neva"
 
 
 @contextmanager
-def reloaded_neva(import_module: Callable[[str], ModuleType]) -> Iterator[ModuleType]:
+def reloaded_neva(probe_class: type) -> Iterator[ModuleType]:
+    """Reload the SSC neva module with the commoner-probe crawler patched.
+
+    Acquisition is delegated to ``commoner_probe.neva.StateAssemblyCrawler`` (a
+    hard dependency). We patch that class to a fake before re-importing the SSC
+    module so ``NevaStateCrawler`` subclasses the fake.
+    """
     original = sys.modules.pop(TARGET_MODULE, None)
     package = sys.modules.get("sansad_semantic_crawler")
     old_attr = getattr(package, "neva", None) if package is not None else None
     if package is not None and hasattr(package, "neva"):
         delattr(package, "neva")
     try:
-        with mock.patch("importlib.import_module", side_effect=import_module):
+        with mock.patch("commoner_probe.neva.StateAssemblyCrawler", probe_class):
             yield REAL_IMPORT_MODULE(TARGET_MODULE)
     finally:
         sys.modules.pop(TARGET_MODULE, None)
@@ -67,34 +71,17 @@ class FakeStateAssemblyCrawler:
         return [{"key": "GJ|paper|15|1|101|0", "probed_at": "2026-06-01T00:03:00"}]
 
 
-def _fake_commoner_neva_module() -> ModuleType:
-    module = types.ModuleType("commoner_probe.neva")
-    module.StateAssemblyCrawler = FakeStateAssemblyCrawler
-    return module
-
-
-def test_neva_delegates_to_commoner_probe_when_available(tmp_path):
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.neva":
-            return _fake_commoner_neva_module()
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_neva(fake_import_module) as neva:
+def test_neva_delegates_to_commoner_probe(tmp_path):
+    with reloaded_neva(FakeStateAssemblyCrawler) as neva:
         crawler = neva.NevaStateCrawler("gujarat", "GJ", tmp_path, sleep=0)
 
-        assert neva.USING_COMMONER_PROBE_NEVA is True
         assert isinstance(crawler, FakeStateAssemblyCrawler)
         assert crawler.log_path == tmp_path / "crawl.log"
         assert crawler.session.headers["User-Agent"] == neva.NEVA_UA
 
 
 def test_delegated_neva_records_keep_crawled_at_compatibility(tmp_path):
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.neva":
-            return _fake_commoner_neva_module()
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_neva(fake_import_module) as neva:
+    with reloaded_neva(FakeStateAssemblyCrawler) as neva:
         crawler = neva.NevaStateCrawler("gujarat", "GJ", tmp_path, sleep=0)
         rows = [
             crawler.fetch_questions_for_date(15, 1, 101, set())[0],
@@ -110,32 +97,3 @@ def test_delegated_neva_records_keep_crawled_at_compatibility(tmp_path):
         "2026-06-01T00:03:00",
     ]
     assert all("probed_at" in row for row in rows)
-
-
-def test_neva_falls_back_to_local_crawler_when_commoner_probe_is_absent(tmp_path):
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.neva":
-            raise ModuleNotFoundError(name, name="commoner_probe")
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_neva(fake_import_module) as neva:
-        crawler = neva.NevaStateCrawler("gujarat", "GJ", tmp_path, sleep=0)
-
-        assert neva.USING_COMMONER_PROBE_NEVA is False
-        assert crawler.log_path == tmp_path / "crawl.log"
-        assert crawler.questions_path == tmp_path / "questions.jsonl"
-        assert crawler.papers_path == tmp_path / "papers_laid.jsonl"
-
-
-def test_commoner_probe_internal_import_errors_are_not_silently_hidden():
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.neva":
-            raise ModuleNotFoundError(
-                "No module named 'missing_dependency'",
-                name="missing_dependency",
-            )
-        return REAL_IMPORT_MODULE(name)
-
-    with pytest.raises(ModuleNotFoundError):
-        with reloaded_neva(fake_import_module):
-            pass

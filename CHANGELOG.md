@@ -9,6 +9,49 @@ The full GitHub release notes live at
 is the single canonical timeline for `requirements.txt` consumers and for
 researchers who pin a tag and want to know what they are pinning to.
 
+## [Unreleased]
+
+### Changed
+
+- **NeVA state-assembly acquisition delegated to `commoner-probe`
+  (`commoner-probe>=0.7.0` required).** `commoner_probe.neva.StateAssemblyCrawler`
+  is now the single source of truth for NeVA acquisition (questions, unlisted
+  questions, members, papers laid); `neva.py`'s local re-implementation has
+  been removed in favor of a thin compatibility wrapper (`NevaStateCrawler`),
+  matching the pattern already used for Sansad Q&A and committee acquisition.
+
+## [2.0.0] — 2026-06-25
+
+### Changed
+
+- **BREAKING — acquisition is delegated to the published `commoner-probe`
+  package, now a required dependency (`commoner-probe>=0.5.1`).** The former
+  "zero required third-party dependencies" guarantee no longer holds: there is
+  no stdlib-only crawl path. Question (LS/RS), committee-report,
+  answer-extraction, and member-roster acquisition now live in `commoner-probe`
+  as the single source of truth; `sansad-semantic-crawler` keeps only its
+  semantic-classification layer. For questions that layer runs at acquisition
+  time via the probe's `record_filter_fn` (new in commoner-probe 0.5.1), so
+  `--max-records` and the per-run/per-bucket counts reflect topic-matching rows.
+  Consumers that pin a tag must ensure `commoner-probe>=0.5.1` is installed.
+
+### Added
+
+- **`sansad-crawl crawl-bills` and `sansad-crawl crawl-debates`** — acquire
+  Parliament bill and debate records, delegating to `commoner-probe`.
+- **Voice and agency analysis** (`discourse.py`, `aggregations.py`): additive
+  surface-analysis fields on `analysis_discourse.jsonl` — `voice`,
+  `passive_ratio`, `agent_named`, and `agent_terms` — plus aggregate ministry /
+  committee summary fields `mean_passive_ratio` and `agent_named_rate`. This
+  extends the discourse layer from *what* the response does to *how* it is
+  phrased.
+
+### Removed
+
+- The local fallback crawlers (`_LocalSansadCrawler`, `_LocalCommitteeCrawler`)
+  and the duplicated acquisition helpers, constants, and committee catalogs —
+  all now sourced from `commoner-probe`.
+
 ## [1.1.0] — 2026-05-11
 
 ### Added
@@ -571,7 +614,8 @@ between `discourse.py` and `classifiers/llm.py`, hand-pinned
 - `manifest.jsonl` and `analysis.jsonl` canonical schemas.
 - Resume-safe crawling via per-record stable keys.
 
-[Unreleased]: https://github.com/CommonerLLP/sansad-semantic-crawler/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/CommonerLLP/sansad-semantic-crawler/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/CommonerLLP/sansad-semantic-crawler/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v1.1.0
 [1.0.0]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v1.0.0
 [0.6.6]: https://github.com/CommonerLLP/sansad-semantic-crawler/releases/tag/v0.6.6

@@ -4,23 +4,29 @@
 
 - [ ] Fix FDA: System Settings → Privacy & Security → Full Disk Access → add Claude Code binary
 - [ ] Wait for partial-recall corpus filter fix before using `corpus="folder"` in MCP queries
+- [ ] Import `notes/neva-bihar-citations.ris` into Zotero (File → Import)
+- [ ] Verify Bihar first session date (22 July 1937) + Ram Dayalu Singh as Speaker — primary source before op-ed publication
+- [ ] Search sansad.in written answers for NeVA year-wise expenditure by state
+- [ ] Pre-existing on origin/main (not introduced by the neva branch merge, 2026-07-06): `tests/test_sansad_record_filter_integration.py::test_rs_filter_drops_nonmatches_and_tags_kept_rows` and `::test_rs_max_records_caps_matching_rows_not_acquired_rows` fail — `_crawler.<locals>.<lambda>() got an unexpected keyword argument 'member_name'`. The test mocks `crawler.rs_search_session`, an attribute `sansad.py`'s `crawl_rs` no longer uses (it now fully delegates to `super().probe_rs(...)` from commoner-probe). CI has no commoner-probe version pin, so this is likely already red on trunk with commoner-probe>=0.7.0.
 
 ## Future
 
 ### NeVA / state assemblies
+- [ ] Assam crawl — 14 sessions, only other state with question data
+- [ ] Move recon script → `scripts/neva_probe.py` with persistent `state_registry.jsonl`
 - [ ] Semantic/intelligence layer: OCR pipeline (two-path Shruti/Shree), translation, embeddings, answer extraction
 - [ ] Test H1-H6 hypotheses against PDF answers (`notes/gujarat-assembly15-hypotheses.md`)
-- [ ] Build `patch-pdfs` utility for systematic null pdf_path patching
 - [ ] Expand to UP (`upvs.neva.gov.in`) — largest state, highest volume
 - [ ] Expand to Haryana (`hrla.neva.gov.in`)
-- [ ] Test Lok Sabha sub-portal (`loksabha.neva.gov.in`) — same API surface?
-- [ ] Verify NeVA data horizon for 2-3 states (confirm Gujarat pattern is universal)
-- [ ] File RTI: Gujarat Vidhan Sabha — status of pre-2022 question digitisation
-- [ ] Blog: NeVA and institutional memory (`notes/blog-neva-institutional-memory.md`)
+- [ ] File RTI: MoPA — year-wise funds released per state under NeVA CSS 2019-26
+- [ ] File RTI: Bihar Vidhan Sabha — status of pre-2022 paper records, digitization plan
+- [ ] File RTI: NIC — status of vidhansabha.bih.nic.in data (migrating or abandoned?)
+- [ ] Check Wayback Machine: vidhansabha.bih.nic.in snapshots 2010–2019
+- [ ] Op-ed: finish verify checklist then share (notes/op-ed-draft-bihar-hollowtech.md)
 - [ ] Publish `notes/neva-api-public-draft.md` once ≥10 states verified
 
 ### Central parliament (pre-existing)
-- [ ] regex_v2 coverage audit (Azad + Sivadasan corpora, measure delta from ~28%)
+- [ ] regex_v2 coverage audit (reference corpora, measure delta from ~28%)
 - [ ] Entity resolver fix: Article 101 house+term disambiguation (`resolver.py`)
 - [ ] CPR Accountability Initiative adapter (JS-rendered, RSS route preferred)
 - [ ] TECHDEBT: duplicate HTTP layer (discourse.py + dossier.py → shared helper)

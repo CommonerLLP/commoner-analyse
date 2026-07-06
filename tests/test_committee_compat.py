@@ -5,13 +5,11 @@ import json
 import sys
 import types
 import unittest.mock as mock
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-
-import pytest
 
 
 REAL_IMPORT_MODULE = importlib.import_module
@@ -19,14 +17,21 @@ TARGET_MODULE = "sansad_semantic_crawler.committees"
 
 
 @contextmanager
-def reloaded_committees(import_module: Callable[[str], ModuleType]) -> Iterator[ModuleType]:
+def reloaded_committees(probe_class: type) -> Iterator[ModuleType]:
+    """Reload the SSC committees module with the commoner-probe probe patched.
+
+    Acquisition is delegated to ``commoner_probe.committees.CommitteeProbe`` (a
+    hard dependency). We patch that class to a fake before re-importing the SSC
+    module so ``CommitteeCrawler`` subclasses the fake; the re-exported helpers
+    continue to resolve from the real ``commoner_probe.committees`` module.
+    """
     original = sys.modules.pop(TARGET_MODULE, None)
     package = sys.modules.get("sansad_semantic_crawler")
     old_attr = getattr(package, "committees", None) if package is not None else None
     if package is not None and hasattr(package, "committees"):
         delattr(package, "committees")
     try:
-        with mock.patch("importlib.import_module", side_effect=import_module):
+        with mock.patch("commoner_probe.committees.CommitteeProbe", probe_class):
             yield REAL_IMPORT_MODULE(TARGET_MODULE)
     finally:
         sys.modules.pop(TARGET_MODULE, None)
@@ -160,12 +165,6 @@ class FakeCommitteeProbe:
         return 1
 
 
-def _fake_commoner_committees_module() -> ModuleType:
-    module = types.ModuleType("commoner_probe.committees")
-    module.CommitteeProbe = FakeCommitteeProbe
-    return module
-
-
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [
         json.loads(line)
@@ -175,12 +174,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def test_committees_delegate_to_commoner_probe_when_available(tmp_path: Path) -> None:
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.committees":
-            return _fake_commoner_committees_module()
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_committees(fake_import_module) as committees:
+    with reloaded_committees(FakeCommitteeProbe) as committees:
         crawler = committees.CommitteeCrawler(
             ContractTopic(),
             tmp_path,
@@ -190,7 +184,6 @@ def test_committees_delegate_to_commoner_probe_when_available(tmp_path: Path) ->
             classifier_mode="contract-regex",
         )
 
-        assert committees.USING_COMMONER_PROBE_COMMITTEES is True
         assert isinstance(crawler, FakeCommitteeProbe)
         assert crawler.log_path == tmp_path / "crawl.log"
         assert crawler.composition_manifest == tmp_path / "committee_members.jsonl"
@@ -199,12 +192,7 @@ def test_committees_delegate_to_commoner_probe_when_available(tmp_path: Path) ->
 def test_delegated_committee_reports_keep_local_semantic_contract(
     tmp_path: Path,
 ) -> None:
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.committees":
-            return _fake_commoner_committees_module()
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_committees(fake_import_module) as committees:
+    with reloaded_committees(FakeCommitteeProbe) as committees:
         crawler = committees.CommitteeCrawler(
             ContractTopic(),
             tmp_path,
@@ -244,12 +232,7 @@ def test_delegated_committee_reports_keep_local_semantic_contract(
 def test_delegated_committee_composition_keeps_crawled_at_compatibility(
     tmp_path: Path,
 ) -> None:
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.committees":
-            return _fake_commoner_committees_module()
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_committees(fake_import_module) as committees:
+    with reloaded_committees(FakeCommitteeProbe) as committees:
         crawler = committees.CommitteeCrawler(
             ContractTopic(),
             tmp_path,
@@ -264,37 +247,30 @@ def test_delegated_committee_composition_keeps_crawled_at_compatibility(
     assert row["crawled_at"] == "2026-06-02T12:03:00"
 
 
-def test_committees_fall_back_to_local_crawler_when_commoner_probe_is_absent(
+def test_composition_patch_tolerates_malformed_line_and_leaves_no_temp(
     tmp_path: Path,
 ) -> None:
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.committees":
-            raise ModuleNotFoundError(name, name="commoner_probe")
-        return REAL_IMPORT_MODULE(name)
-
-    with reloaded_committees(fake_import_module) as committees:
+    with reloaded_committees(FakeCommitteeProbe) as committees:
         crawler = committees.CommitteeCrawler(
             ContractTopic(),
             tmp_path,
             sleep=0,
             classifier_mode="contract-regex",
         )
+        # Seed the append-only manifest with a malformed/legacy line followed by
+        # a valid probed_at row, then run the crawled_at patch directly.
+        crawler.composition_manifest.write_text(
+            "{ not valid json\n"
+            + json.dumps({"committee": "x", "probed_at": "2026-06-02T12:03:00"})
+            + "\n",
+            encoding="utf-8",
+        )
+        crawler._patch_composition_crawled_at()
 
-        assert committees.USING_COMMONER_PROBE_COMMITTEES is False
-        assert crawler.log_path == tmp_path / "crawl.log"
-        assert crawler.composition_manifest == tmp_path / "committee_members.jsonl"
-        assert hasattr(crawler, "crawl_ls")
-
-
-def test_commoner_probe_internal_import_errors_are_not_silently_hidden() -> None:
-    def fake_import_module(name: str) -> ModuleType:
-        if name == "commoner_probe.committees":
-            raise ModuleNotFoundError(
-                "No module named 'missing_dependency'",
-                name="missing_dependency",
-            )
-        return REAL_IMPORT_MODULE(name)
-
-    with pytest.raises(ModuleNotFoundError):
-        with reloaded_committees(fake_import_module):
-            pass
+        lines = crawler.composition_manifest.read_text(encoding="utf-8").splitlines()
+        # Malformed line preserved verbatim (no data loss, no crash) ...
+        assert lines[0] == "{ not valid json"
+        # ... and the valid row gets crawled_at aliased from probed_at.
+        assert json.loads(lines[1])["crawled_at"] == "2026-06-02T12:03:00"
+        # Atomic rewrite leaves no stray temp file behind.
+        assert not (tmp_path / "committee_members.jsonl.tmp").exists()

@@ -213,7 +213,7 @@ def test_sansad_local_qa_outputs_keep_semantic_fields_and_parse(tmp_path: Path) 
     assert ls_row["found_via_group"] == "libraries"
     assert ls_row["found_via_query"] == "public library"
     assert ls_row["crawled_at"]
-    assert "probed_at" not in ls_row
+    assert ls_row["probed_at"]
 
     rs_row = by_house["Rajya Sabha"]
     assert rs_row["kind"] == "qa"
@@ -235,7 +235,7 @@ def test_sansad_local_qa_outputs_keep_semantic_fields_and_parse(tmp_path: Path) 
     parsed = parse_corpus(topic, tmp_path)
     assert len(parsed) == 2
     for row in parsed:
-        assert row["acquisition_source"] == "sansad-semantic-crawler"
+        assert row["acquisition_source"] == "commoner-probe"
         assert row["acquisition_log"] == "crawl.log"
         assert row["tags"] == ["nml", "public_library"]
         assert row["classifier"] == "contract-regex"
@@ -287,10 +287,10 @@ def test_committee_local_outputs_keep_report_and_semantic_fields(
     assert row["score"] == 2.0
     assert row["classifier"] == "contract-regex"
     assert row["crawled_at"]
-    assert "probed_at" not in row
+    assert row["probed_at"]
 
     parsed = parse_corpus(topic, tmp_path)[0]
-    assert parsed["acquisition_source"] == "sansad-semantic-crawler"
+    assert parsed["acquisition_source"] == "commoner-probe"
     assert parsed["acquisition_log"] == "crawl.log"
     assert parsed["report_type"] == "demands_for_grants"
     assert parsed["tags"] == ["nml", "public_library"]
