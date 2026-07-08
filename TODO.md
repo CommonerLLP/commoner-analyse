@@ -8,26 +8,6 @@
 - [ ] Verify Bihar first session date (22 July 1937) + Ram Dayalu Singh as Speaker — primary source before op-ed publication
 - [ ] Search sansad.in written answers for NeVA year-wise expenditure by state
 
-### Codex findings — pre-existing, unaddressed by this session's PRs (re-verified 2026-07-06)
-- [ ] `graph.py:59,69,132` — `_load_classifications`/`_load_atr_linkages` use `INSERT OR REPLACE`
-      with no unique constraint and no delete-before-reload, so rebuilds after a changed corpus
-      insert duplicate rows instead of replacing them (Codex PR#34, P1)
-- [ ] `dossier.py:_resolve_display_identity` — counts asker name/entity_id fields from *all*
-      matched rows, not just the row for the matched asker, when a record has multiple askers
-      (Codex PR#30, P1)
-- [ ] `cli.py:268 analyse_ministry_cmd` — only checks `manifest.jsonl` exists, not
-      `analysis_discourse.jsonl`; running `analyse-ministry` before `analyse-discourse` silently
-      produces an all-UNCLASSIFIED summary instead of failing fast (Codex PR#25, P2)
-- [ ] `aggregations.py` (qa branch, `write_ministry_summary`) — `records_total` increments once
-      per manifest record but `label_distribution` increments once per discourse row; mismatched
-      units when a key has more than one discourse row (Codex PR#25, P1)
-- [ ] `discourse.py:526 _VOICE_ACTIVE_RE` — bare auxiliaries (`has|have|had|will|shall|does|do`)
-      over-match passive constructions with a named agent as active; ministry/department span
-      match is unbounded-greedy (Codex PR#43, P2 x2) — only became re-checkable this session once
-      the voice/agency feature merged in via the branch reconciliation
-- [ ] `CONTRIBUTING.md` says "requires Python 3.11 or 3.12 or 3.13"; `pyproject.toml` says
-      `requires-python = ">=3.10"` — still mismatched (Codex PR#15, P2)
-
 ## Future
 
 ### NeVA / state assemblies
@@ -48,15 +28,36 @@
 - [ ] Publish `notes/neva-api-public-draft.md` once ≥10 states verified
 
 ### Central parliament (pre-existing)
-- [ ] regex_v2 coverage audit (reference corpora, measure delta from ~28%)
-- [ ] Entity resolver fix: Article 101 house+term disambiguation (`resolver.py`)
-- [ ] CPR Accountability Initiative adapter (JS-rendered, RSS route preferred)
-- [ ] TECHDEBT: duplicate HTTP layer (discourse.py + dossier.py → shared helper)
-- [ ] TECHDEBT: topic_hash propagation into analysis_discourse.jsonl
-- [ ] TECHDEBT: Channel enum
+- [ ] regex_v2 coverage audit (reference corpora, measure delta from ~28%) — needs
+      reference corpora not available in a code-only pass
+- [ ] CPR Accountability Initiative adapter (JS-rendered, RSS route preferred) —
+      **architecture flag:** this is new acquisition/scraping code; per
+      `_org/architecture.md`'s Layer 0/2 split, this repo owns zero acquisition
+      code. Belongs in `commoner-probe`, not here — check its CHANGELOG/README
+      first, then scope there.
+- [ ] TECHDEBT: topic_hash propagation into analysis_discourse.jsonl — `analyse_discourse()`
+      currently has no topic-profile parameter at all (unlike mp_summary/ministry_summary),
+      so this is a signature/CLI-flag addition, not a one-line fix; scope as its own task
+- [ ] TECHDEBT: Channel enum (`CHANNEL_QA`/`CHANNEL_COMMITTEE` are string constants in
+      discourse.py; a real enum would give type-checking over the channel value at both
+      classify and aggregate call sites — not yet started)
 
 ## Archive
 
+- [x] Fixed all 6 outstanding Codex findings (2026-07-08): `graph.py` classifications/
+      atr_linkages unique constraints + clear-before-reload (PR#34); `dossier.py`
+      `_resolve_display_identity` co-asker pollution (PR#30); `cli.py` `analyse-ministry`
+      fail-fast on missing `analysis_discourse.jsonl` (PR#25); `aggregations.py`
+      `write_ministry_summary` records_total/label_distribution unit mismatch via
+      discourse-row dedup (PR#25); `discourse.py` `_VOICE_ACTIVE_RE` bare-auxiliary
+      passive over-match + ministry-span IGNORECASE bug (PR#43); `CONTRIBUTING.md`
+      Python-version mismatch (PR#15). Regression tests added for each.
+- [x] Entity resolver: `_membership_score` now scores `context["date"]` against each
+      membership's start/end window — Article 101(1) house+term disambiguation, fixing
+      a documented-but-unimplemented `date` context key (2026-07-08)
+- [x] TECHDEBT: duplicate HTTP layer resolved — `discourse.py`'s and `dossier.py`'s
+      SSRF-guarded LLM endpoint validation, API-key resolution, chat-completions POST,
+      and tolerant JSON parsing consolidated into new `llm_client.py` (2026-07-08)
 - [x] Renamed sansad-semantic-crawler → commoner-analyse; released v2.1.0 (2026-07-06)
 - [x] NeVA acquisition delegated to commoner-probe>=0.7.0's native `state-assembly`;
       local fallback crawler removed (2026-07-06)

@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS questions (
 );
 
 CREATE TABLE IF NOT EXISTS classifications (
-    record_key TEXT NOT NULL,
+    record_key TEXT NOT NULL UNIQUE,
     label TEXT,
     classifier TEXT,
     confidence REAL,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS classifications (
 );
 
 CREATE TABLE IF NOT EXISTS atr_linkages (
-    atr_record_key TEXT NOT NULL,
+    atr_record_key TEXT NOT NULL UNIQUE,
     references_report_no TEXT,
     references_report_key TEXT,
     FOREIGN KEY (atr_record_key) REFERENCES questions(record_key),
@@ -125,7 +125,8 @@ def build_graph(
     
     try:
         init_db(conn)
-        
+        _clear_derived_tables(conn)
+
         _load_entities(conn, out_dir, log_fn)
         _load_questions(conn, out_dir, log_fn)
         _load_classifications(conn, out_dir, log_fn)
@@ -179,6 +180,21 @@ def _set_meta_value(conn: sqlite3.Connection, key: str, value: str) -> None:
         "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
         (key, value),
     )
+
+
+def _clear_derived_tables(conn: sqlite3.Connection) -> None:
+    """Delete existing rows before a full reload.
+
+    build_graph() rebuilds from JSONL on any content-hash change, but the
+    tables persist across rebuilds — without this, records removed from the
+    JSONL pipeline outputs would remain in the database forever. Children
+    are cleared before parents to satisfy the foreign-key constraints.
+    """
+    conn.execute("DELETE FROM classifications")
+    conn.execute("DELETE FROM atr_linkages")
+    conn.execute("DELETE FROM questions")
+    conn.execute("DELETE FROM entities")
+    conn.commit()
 
 
 def _load_entities(conn: sqlite3.Connection, out_dir: Path,

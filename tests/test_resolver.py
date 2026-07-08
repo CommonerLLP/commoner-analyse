@@ -118,6 +118,41 @@ class ResolveAmbiguousTests(unittest.TestCase):
         result = r.resolve("Pralhad Joshi", context={"ministry": "education"})
         self.assertEqual(result.status, "ambiguous")
 
+    def test_house_switch_across_terms_disambiguated_by_date(self):
+        # Article 101(1): a person sits in at most one House at a time.
+        # Two different, same-surname people each held an RS seat at some
+        # point — one currently (2020-present), one long lapsed
+        # (2004-2009). Matching "house" alone against ANY historical
+        # membership ties them; the record's own date must break the tie
+        # in favour of whoever's RS term was actually active then.
+        tmp = tempfile.mkdtemp()
+        store = EntityStore(Path(tmp))
+
+        current_member = make_entity_id("Term Mover", "rs", "BJP")
+        store.add_person(Person(entity_id=current_member, canonical_name="Term Mover"))
+        store.add_mp_membership(
+            MpMembership(entity_id=current_member, house="rs", term=None, party="BJP",
+                         party_name="Bharatiya Janata Party", state="Karnataka",
+                         start="2020-01-01", end=None)
+        )
+
+        lapsed_member = make_entity_id("Term Mover", "rs", "INC")
+        store.add_person(Person(entity_id=lapsed_member, canonical_name="Term Mover"))
+        store.add_mp_membership(
+            MpMembership(entity_id=lapsed_member, house="rs", term=None, party="INC",
+                         party_name="Indian National Congress", state="Kerala",
+                         start="2004-01-01", end="2009-01-01")
+        )
+
+        r = Resolver(store)
+        # Without date-based disambiguation, both candidates tie on house
+        # alone and this would incorrectly stay "ambiguous".
+        result = r.resolve(
+            "Term Mover", context={"house": "rs", "date": "2023-01-01"}
+        )
+        self.assertEqual(result.status, "resolved")
+        self.assertEqual(result.entity_id, current_member)
+
 
 class BureaucratPathTests(unittest.TestCase):
     def test_kind_hint_bureaucrat_returns_deferred(self):

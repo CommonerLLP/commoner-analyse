@@ -210,6 +210,27 @@ class VoiceAndAgencyTests(unittest.TestCase):
         self.assertGreater(s.passive_ratio, 0.5)
         self.assertTrue(s.agent_named)
 
+    def test_perfect_passive_with_bare_auxiliary_stays_passive(self):
+        # "has been informed" must not count as an active hit just because
+        # a bare "has" precedes it — the auxiliary is forming a passive
+        # perfect, not an active verb.
+        text = "The Ministry has been informed of the delay."
+        s = analyse_voice_and_agency(text)
+        self.assertEqual(s.voice, "passive")
+        self.assertEqual(s.passive_ratio, 1.0)
+        self.assertTrue(s.agent_named)
+
+    def test_ministry_span_does_not_swallow_unrelated_proper_nouns(self):
+        # The ministry-name span must stop at the ministry's own name, not
+        # extend into whatever capitalized words follow in the sentence.
+        text = (
+            "The Ministry of Health and Family Welfare Government India "
+            "Parliament Election Commission notifies the rule."
+        )
+        s = analyse_voice_and_agency(text)
+        self.assertIn("The Ministry of Health", s.agent_terms)
+        self.assertNotIn("Parliament Election Commission", " ".join(s.agent_terms))
+
 
 # ---------------------------------------------------------------------------
 # Corpus dispatcher

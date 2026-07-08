@@ -182,6 +182,28 @@ class MinistrySummaryTests(unittest.TestCase):
         self.assertAlmostEqual(finance["mean_passive_ratio"], 0.5)
         self.assertAlmostEqual(finance["agent_named_rate"], 2 / 3, places=3)
 
+    def test_duplicate_discourse_row_does_not_skew_counters(self):
+        # A record_key should have exactly one classification (the
+        # graph.py classifications table now enforces this at load time).
+        # If analysis_discourse.jsonl ever carries a duplicate row for the
+        # same key, records_total and label_distribution must stay on the
+        # same unit of measure — one count per manifest record, not one
+        # per discourse row.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            _write_jsonl(out / "manifest.jsonl", [
+                {"key": "k1", "kind": "qa", "ministry": "FINANCE", "askers": ["A"]},
+            ])
+            _write_jsonl(out / "analysis_discourse.jsonl", [
+                {"key": "k1", "label": "ACCEPTED"},
+                {"key": "k1", "label": "DEFLECTED"},  # stray duplicate row
+            ])
+            write_ministry_summary(out, log_fn=lambda *_: None)
+            row = json.loads((out / "ministry_summary_qa.jsonl").read_text().splitlines()[0])
+        self.assertEqual(row["records_total"], 1)
+        self.assertEqual(sum(row["label_distribution"].values()), 1)
+        self.assertEqual(row["label_distribution"], {"ACCEPTED": 1})
+
     def test_committee_aggregation_with_rejected_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)

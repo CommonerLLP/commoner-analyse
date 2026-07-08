@@ -22,7 +22,7 @@ labelled records into the per-actor view a researcher actually wants.
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -289,11 +289,15 @@ def write_ministry_summary(
     stats = MinistrySummaryStats()
     manifest = _read_jsonl(out_dir / "manifest.jsonl")
     discourse_rows = _read_jsonl(out_dir / "analysis_discourse.jsonl")
-    discourse_by_key: dict[str, list[dict]] = defaultdict(list)
+    # One classification per record_key (matches write_mp_summary and the
+    # graph.py classifications table's uniqueness invariant) — first-wins,
+    # so a duplicate-written row never counts label_distribution twice
+    # against a records_total that only counts the record once.
+    discourse_by_key: dict[str, dict] = {}
     for r in discourse_rows:
         key = r.get("key")
-        if key is not None:
-            discourse_by_key[key].append(r)
+        if key is not None and key not in discourse_by_key:
+            discourse_by_key[key] = r
 
     qa_groups: dict[str, dict[str, Any]] = {}
     cm_groups: dict[str, dict[str, Any]] = {}
@@ -313,8 +317,8 @@ def write_ministry_summary(
         stats.records_processed += 1
         kind = rec.get("kind") or ""
         key = rec.get("key", "")
-        rows_for_record = discourse_by_key.get(key, [{"label": "UNCLASSIFIED"}])
-        labels_for_record = [d.get("label") or "UNCLASSIFIED" for d in rows_for_record]
+        d = discourse_by_key.get(key, {"label": "UNCLASSIFIED"})
+        lab = d.get("label") or "UNCLASSIFIED"
 
         if kind == "qa":
             ministry = rec.get("ministry")
@@ -322,13 +326,12 @@ def write_ministry_summary(
                 continue
             g = qa_groups.setdefault(ministry, _new_group("ministry", ministry))
             g["records_total"] += 1
-            for d, lab in zip(rows_for_record, labels_for_record):
-                g["label_distribution"][lab] += 1
-                if d.get("passive_ratio") is not None:
-                    g["voice_rows"] += 1
-                    g["passive_ratio_sum"] += float(d.get("passive_ratio") or 0.0)
-                    if d.get("agent_named"):
-                        g["agent_named_rows"] += 1
+            g["label_distribution"][lab] += 1
+            if d.get("passive_ratio") is not None:
+                g["voice_rows"] += 1
+                g["passive_ratio_sum"] += float(d.get("passive_ratio") or 0.0)
+                if d.get("agent_named"):
+                    g["agent_named_rows"] += 1
         elif kind == "committee_report":
             slug = rec.get("committee_slug")
             if not slug:
@@ -338,15 +341,14 @@ def write_ministry_summary(
             g = cm_groups.setdefault(group_key, _new_group("committee_slug", slug))
             g.setdefault("house", house_prefix)
             g["records_total"] += 1
-            for d, lab in zip(rows_for_record, labels_for_record):
-                g["label_distribution"][lab] += 1
-                if d.get("passive_ratio") is not None:
-                    g["voice_rows"] += 1
-                    g["passive_ratio_sum"] += float(d.get("passive_ratio") or 0.0)
-                    if d.get("agent_named"):
-                        g["agent_named_rows"] += 1
-                if lab == "REJECTED":
-                    g["rejected_recommendation_keys"].append(key)
+            g["label_distribution"][lab] += 1
+            if d.get("passive_ratio") is not None:
+                g["voice_rows"] += 1
+                g["passive_ratio_sum"] += float(d.get("passive_ratio") or 0.0)
+                if d.get("agent_named"):
+                    g["agent_named_rows"] += 1
+            if lab == "REJECTED":
+                g["rejected_recommendation_keys"].append(key)
 
     th = _topic_hash(topic_profile_path)
 

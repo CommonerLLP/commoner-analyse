@@ -42,18 +42,14 @@ review or LLM-tier escalation.
 
 from __future__ import annotations
 
-import ipaddress
 import json
-import os
 import re
-import socket
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
-from urllib import request as _url_request
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+
+from . import llm_client
 
 CLASSIFIER_VERSION = "regex_v2"
 LLM_CLASSIFIER_VERSION = "llm_discourse_v2"
@@ -510,30 +506,36 @@ def _empty_classification(channel: str, reason: str = "") -> DiscourseClassifica
     )
 
 
-_VOICE_AGENT_RE = re.compile(
-    r"\b(?:the\s+)?(?:"
-    r"ministry(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
-    r"department(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
+# The whole pattern is IGNORECASE for the trigger words (ministry/committee/
+# etc.), but `[A-Z]` here must stay a real capital-letter gate — under
+# IGNORECASE, a bare `[A-Z]` matches lowercase too, so the ministry/
+# department name span would swallow any run of subsequent words
+# (capitalized or not) instead of stopping at the proper-noun boundary.
+# `(?-i:...)` turns IGNORECASE back off for just this sub-pattern.
+_INSTITUTIONAL_AGENT = (
+    r"(?:the\s+)?(?:"
+    r"ministry(?:\s+of\s+(?-i:[A-Z][A-Za-z,&\-]*)(?:\s+(?-i:[A-Z][A-Za-z,&\-]*)){0,6})?|"
+    r"department(?:\s+of\s+(?-i:[A-Z][A-Za-z,&\-]*)(?:\s+(?-i:[A-Z][A-Za-z,&\-]*)){0,6})?|"
     r"central\s+government|government\s+of\s+india|government|"
     r"minister|committee|"
     r"university\s+grants\s+commission|ugc|"
     r"niti\s+aayog|"
     r"foundation"
-    r")\b",
+    r")"
+)
+
+_VOICE_AGENT_RE = re.compile(
+    rf"\b{_INSTITUTIONAL_AGENT}\b",
     re.IGNORECASE,
 )
 
 _VOICE_ACTIVE_RE = re.compile(
-    r"\b(?:the\s+)?(?:"
-    r"ministry(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
-    r"department(?:\s+of\s+[A-Z][A-Za-z,&\-]*(?:\s+[A-Z][A-Za-z,&\-]*){0,6})?|"
-    r"central\s+government|government\s+of\s+india|government|"
-    r"minister|committee|"
-    r"university\s+grants\s+commission|ugc|"
-    r"niti\s+aayog|"
-    r"foundation"
-    r")\b.{0,80}?\b(?:"
-    r"has|have|had|will|shall|does|do|"
+    rf"\b{_INSTITUTIONAL_AGENT}\b.{{0,80}}?\b(?:"
+    # Bare auxiliaries only count as active when NOT immediately forming a
+    # passive perfect/future ("has been noted", "will be examined") — those
+    # already match _VOICE_PASSIVE_PATTERNS and must not double-count as active.
+    r"has(?!\s+(?:not\s+)?been\b)|have(?!\s+(?:not\s+)?been\b)|had(?!\s+(?:not\s+)?been\b)|"
+    r"will(?!\s+(?:not\s+)?be\b)|shall(?!\s+(?:not\s+)?be\b)|does|do|"
     r"agrees?|appreciates?|takes?|reiterates?|supplements?|provides?|"
     r"launch(?:es|ed)?|states?|informs?|approves?|allocates?|releases?|"
     r"decides?|notes?|considers?|examines?|reviews?|"
@@ -643,186 +645,11 @@ def classify_response(text: str, channel: str) -> DiscourseClassification:
 
 # ---------------------------------------------------------------------------
 # LLM classifier (Tier 2) — Ollama-compatible chat completions
+#
+# Endpoint validation, SSRF guard, and the HTTP POST itself live in
+# llm_client.py, shared with dossier.py's ministry-query refinement (same
+# Ollama-compatible protocol, same safety requirements).
 # ---------------------------------------------------------------------------
-
-
-# Schemes allowed for LLM endpoints. urllib.request.urlopen also honours
-# file:// and ftp://, which would let a malicious topic-config string
-# read local files; restrict to HTTP(S) only.
-_ALLOWED_LLM_SCHEMES = frozenset({"http", "https"})
-
-
-def _validate_llm_endpoint(endpoint: str, *, allow_private: bool = True) -> None:
-    """Reject endpoint URLs that aren't HTTP(S) or that target unexpected hosts.
-
-    The default ``allow_private=True`` exists because the LLM tier is
-    designed for local Ollama (`http://localhost:11434/v1`). When the caller
-    passes ``allow_private=False`` (e.g. for a hardened deployment), private
-    IP ranges and link-local addresses are also blocked to defeat SSRF
-    against internal services.
-
-    Raises ``ValueError`` on invalid inputs; the corpus dispatcher catches
-    this and falls back to UNCLASSIFIED for the affected record.
-    """
-    parts = urlsplit(endpoint)
-    if parts.scheme not in _ALLOWED_LLM_SCHEMES:
-        raise ValueError(
-            f"LLM endpoint scheme must be one of {sorted(_ALLOWED_LLM_SCHEMES)}; "
-            f"got {parts.scheme!r}"
-        )
-    if not parts.hostname:
-        raise ValueError("LLM endpoint URL has no hostname")
-    if not allow_private:
-        host = parts.hostname
-        # First: is the host already an IP literal?
-        # We separate the IP-literal parse from the rejection branch so
-        # that our own "private/loopback rejected" ValueError is not
-        # mistakenly caught by the surrounding try/except.
-        ip_literal: ipaddress.IPv4Address | ipaddress.IPv6Address | None = None
-        try:
-            ip_literal = ipaddress.ip_address(host)
-        except ValueError:
-            # Not an IP literal — host is a DNS name. Fall through to
-            # name-based block + DNS resolution below.
-            ip_literal = None
-
-        addrs: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
-        if ip_literal is not None:
-            addrs = [ip_literal]
-        else:
-            # Block obvious loopback names without doing DNS first.
-            if host in {"localhost", "ip6-localhost", "ip6-loopback"}:
-                raise ValueError(
-                    "LLM endpoint host is loopback; pass "
-                    "allow_private=True if intentional (e.g. local Ollama)."
-                )
-            # Resolve the hostname and check every returned address.
-            # Without this, an attacker (or careless internal-DNS config)
-            # could point a name at 10.0.0.x or 169.254.169.254 and
-            # bypass --llm-block-private. We accept the latency cost on
-            # the hardened path.
-            try:
-                resolved = socket.getaddrinfo(
-                    host, None, type=socket.SOCK_STREAM,
-                )
-            except OSError as exc:
-                raise ValueError(
-                    f"LLM endpoint host could not be resolved: {type(exc).__name__}"
-                ) from exc
-            seen: set[str] = set()
-            for family, _kind, _proto, _name, sockaddr in resolved:
-                addr_str = sockaddr[0]
-                if addr_str in seen:
-                    continue
-                seen.add(addr_str)
-                try:
-                    addrs.append(ipaddress.ip_address(addr_str))
-                except ValueError:
-                    # Unrecognised address family — be conservative.
-                    raise ValueError(
-                        "LLM endpoint host resolved to an unrecognised "
-                        "address; refusing to dispatch."
-                    )
-
-        for a in addrs:
-            if (
-                a.is_private
-                or a.is_loopback
-                or a.is_link_local
-                or a.is_multicast
-                or a.is_reserved
-                or a.is_unspecified
-            ):
-                raise ValueError(
-                    "LLM endpoint host is private/loopback; pass "
-                    "allow_private=True if intentional (e.g. local Ollama)."
-                )
-
-
-def _resolve_api_key(api_key: str | None) -> str | None:
-    """Resolve ``env:VAR_NAME`` indirection; return None when no key set.
-
-    Mirrors ``classifiers.llm._chat_completions_post``'s behaviour so
-    operators can keep secrets in environment variables without putting
-    them in topic-profile JSON (which is content-hashed and travels in
-    ``_runs.jsonl``).
-    """
-    if not api_key:
-        return None
-    if api_key.startswith("env:"):
-        var = api_key[4:]
-        return os.environ.get(var)
-    return api_key
-
-
-def _discourse_http_post(
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    timeout_s: float,
-    api_key: str | None = None,
-    allow_private: bool = True,
-) -> str:
-    """POST to an Ollama-compatible chat completions endpoint; return raw content.
-
-    Validates the endpoint scheme and (optionally) host privacy class before
-    dispatching the request. Raises ``RuntimeError`` (caught upstream) on
-    network failure; raises ``ValueError`` when the URL is rejected by the
-    safety check.
-    """
-    _validate_llm_endpoint(endpoint, allow_private=allow_private)
-    base = endpoint.rstrip("/")
-    url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    resolved_key = _resolve_api_key(api_key)
-    if resolved_key:
-        headers["Authorization"] = f"Bearer {resolved_key}"
-    req = _url_request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with _url_request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["choices"][0]["message"].get("content") or "{}"
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise RuntimeError(f"LLM endpoint unreachable: {type(exc).__name__}") from exc
-
-
-def _parse_llm_json(content: str) -> dict[str, Any]:
-    """Parse JSON from LLM output; falls back to extracting the first
-    balanced ``{...}`` block if the model wraps the JSON in markdown
-    fences or prose.
-
-    Uses ``json.JSONDecoder.raw_decode`` rather than a regex because
-    neither a non-greedy ``\\{[^{}]*\\}`` (breaks on nested objects) nor
-    a greedy ``\\{.*\\}`` (breaks on multiple objects, e.g. when the
-    model outputs the answer plus a trailing example) is correct. The
-    decoder walks JSON grammar properly: it returns the first valid
-    JSON value starting at offset, then we ignore anything after.
-    """
-    decoder = json.JSONDecoder()
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        # Find the first ``{`` and try raw_decode from there. If that
-        # ``{`` is part of an unbalanced/garbage prefix, advance and
-        # retry until success or end-of-input.
-        for start in range(len(content)):
-            if content[start] != "{":
-                continue
-            try:
-                obj, _end = decoder.raw_decode(content[start:])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(obj, dict):
-                return obj
-        raise
 
 
 def classify_response_llm(
@@ -890,14 +717,14 @@ def classify_response_llm(
     }
 
     try:
-        http_fn = _http_post or _discourse_http_post
+        http_fn = _http_post or llm_client.llm_http_post
         raw_content = http_fn(
             endpoint, payload,
             timeout_s=timeout_s,
             api_key=api_key,
             allow_private=allow_private,
         )
-        parsed = _parse_llm_json(raw_content)
+        parsed = llm_client.parse_llm_json(raw_content)
         label = str(parsed.get("label") or "").strip().upper()
         if label not in DISCOURSE_LABEL_DESCRIPTIONS:
             return _empty_classification(
