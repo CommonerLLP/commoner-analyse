@@ -19,11 +19,13 @@ from commoner_analyse.discourse import (
     CHANNEL_QA,
     DISCOURSE_LABEL_DESCRIPTIONS,
     LLM_CLASSIFIER_VERSION,
-    _ALLOWED_LLM_SCHEMES,
-    _parse_llm_json,
-    _resolve_api_key,
-    _validate_llm_endpoint,
     classify_response_llm,
+)
+from commoner_analyse.llm_client import (
+    ALLOWED_LLM_SCHEMES as _ALLOWED_LLM_SCHEMES,
+    parse_llm_json as _parse_llm_json,
+    resolve_api_key as _resolve_api_key,
+    validate_llm_endpoint as _validate_llm_endpoint,
 )
 from commoner_analyse.runlog import _is_secret_key, _redact
 
@@ -86,7 +88,7 @@ class EndpointValidationTests(unittest.TestCase):
         # If this raises, the hardened path can't reach any endpoint.
         fake_resolved = [(2, 1, 6, "", ("93.184.216.34", 0))]
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             return_value=fake_resolved,
         ):
             _validate_llm_endpoint(
@@ -106,7 +108,7 @@ class EndpointValidationTests(unittest.TestCase):
         # Mock getaddrinfo to return 10.0.0.5 for the hostname.
         fake_resolved = [(2, 1, 6, "", ("10.0.0.5", 0))]
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             return_value=fake_resolved,
         ):
             with self.assertRaises(ValueError) as cm:
@@ -121,7 +123,7 @@ class EndpointValidationTests(unittest.TestCase):
         target before this fix."""
         fake_resolved = [(2, 1, 6, "", ("169.254.169.254", 0))]
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             return_value=fake_resolved,
         ):
             with self.assertRaises(ValueError):
@@ -133,7 +135,7 @@ class EndpointValidationTests(unittest.TestCase):
     def test_hostname_resolving_to_public_ip_passes(self):
         fake_resolved = [(2, 1, 6, "", ("8.8.8.8", 0))]
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             return_value=fake_resolved,
         ):
             _validate_llm_endpoint(
@@ -149,7 +151,7 @@ class EndpointValidationTests(unittest.TestCase):
             (2, 1, 6, "", ("10.0.0.1", 0)),
         ]
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             return_value=fake_resolved,
         ):
             with self.assertRaises(ValueError):
@@ -162,7 +164,7 @@ class EndpointValidationTests(unittest.TestCase):
         falling through and letting urllib do it (where it would
         bypass our policy check)."""
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             side_effect=OSError("nodename nor servname provided"),
         ):
             with self.assertRaises(ValueError) as cm:
@@ -177,7 +179,7 @@ class EndpointValidationTests(unittest.TestCase):
         allow_private=False."""
         called = []
         original = __import__(
-            "commoner_analyse.discourse", fromlist=["socket"]
+            "commoner_analyse.llm_client", fromlist=["socket"]
         ).socket.getaddrinfo
 
         def _track(*args, **kwargs):
@@ -185,7 +187,7 @@ class EndpointValidationTests(unittest.TestCase):
             return original(*args, **kwargs)
 
         with mock.patch(
-            "commoner_analyse.discourse.socket.getaddrinfo",
+            "commoner_analyse.llm_client.socket.getaddrinfo",
             side_effect=_track,
         ):
             _validate_llm_endpoint(

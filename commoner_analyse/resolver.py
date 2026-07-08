@@ -40,14 +40,36 @@ class ResolutionResult:
         return asdict(self)
 
 
+def _date_in_membership_window(date: str, start: str | None, end: str | None) -> bool:
+    """Is ``date`` (ISO 8601) within ``[start, end]``? Open ends match anything."""
+    if start and date < start:
+        return False
+    if end and date > end:
+        return False
+    return True
+
+
 def _membership_score(m: MpMembership, context: dict) -> float:
-    """How well does an MP membership match the context? 0..1."""
+    """How well does an MP membership match the context? 0..1.
+
+    Article 101(1) forbids simultaneous membership of both Houses — at
+    any given date a person sits in at most one House. Matching ``house``
+    alone against ANY of a candidate's historical memberships (ignoring
+    which term was active on the record's date) can tie two genuinely
+    different people who each held that house at some point in their
+    career. ``date`` narrows the match to the membership actually active
+    then, disambiguating by house+term rather than house alone.
+    """
     score = 0.0
     matched = 0
     total = 0
     if "house" in context and context["house"]:
         total += 1
         if m.house and m.house.lower() == str(context["house"]).lower():
+            matched += 1
+    if "date" in context and context["date"]:
+        total += 1
+        if _date_in_membership_window(str(context["date"]), m.start, m.end):
             matched += 1
     if "party" in context and context["party"]:
         total += 1

@@ -11,6 +11,49 @@ researchers who pin a tag and want to know what they are pinning to.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`graph.py` classifications/atr_linkages could accumulate duplicate rows.**
+  Neither table had a unique constraint on its record-key column, so
+  `INSERT OR REPLACE` degraded to a plain insert on rebuild; a changed corpus
+  could also leave stale rows for records removed from the JSONL pipeline
+  outputs. Added `UNIQUE` constraints and a full-clear-before-reload pass.
+- **`dossier.py`'s `_resolve_display_identity` mixed up co-askers on joint
+  questions.** It tallied every asker's name/entity_id on a record instead of
+  only the asker matching the target MP, so a joint question's co-asker could
+  pollute an MP's own display-name/entity_id resolution.
+- **`analyse-ministry` silently produced all-UNCLASSIFIED summaries** when run
+  before `analyse-discourse` — it only checked `manifest.jsonl` existed, not
+  `analysis_discourse.jsonl`. Now fails fast with a clear message.
+- **`write_ministry_summary`'s `records_total` and `label_distribution` used
+  different units** when a record_key had more than one discourse row —
+  `records_total` counted once per manifest record, `label_distribution` once
+  per discourse row. Deduplicated discourse rows to one per key (matching
+  `write_mp_summary` and the `graph.py` uniqueness invariant above).
+- **Discourse voice-detection over-matched.** `_VOICE_ACTIVE_RE` counted bare
+  auxiliaries (`has`/`have`/`had`/`will`/`shall`) as active even when forming
+  a passive perfect/future ("has been noted"), double-counting text that
+  `_VOICE_PASSIVE_PATTERNS` already caught. Separately, the ministry/department
+  name span's `[A-Z]` gate was neutered by the pattern's own `re.IGNORECASE`
+  flag, letting it swallow unrelated capitalized words following the agent
+  mention. Fixed both; extracted the shared agent pattern to avoid a second
+  copy drifting the same way.
+- **Entity resolver ignored `date` context** despite documenting it as a valid
+  disambiguation key — Article 101(1) means a person sits in at most one House
+  at a time, so matching `house` against ANY historical membership (not the one
+  active on the record's date) could tie two different people who each held
+  that house at some point. `_membership_score` now also scores membership
+  windows against `context["date"]`.
+- **`CONTRIBUTING.md` said Python 3.11/3.12/3.13 required**, excluding 3.10
+  even though `pyproject.toml` and CI both support it.
+
+### Changed
+
+- **Consolidated the duplicated LLM HTTP layer.** `discourse.py`'s and
+  `dossier.py`'s near-identical SSRF-guarded endpoint validation, API-key
+  resolution, chat-completions POST, and tolerant JSON parsing now live once,
+  in `llm_client.py`.
+
 ## [2.2.0] — 2026-07-06
 
 ### Added

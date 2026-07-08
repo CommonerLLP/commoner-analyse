@@ -24,6 +24,7 @@ from commoner_analyse.dossier import (
     DOSSIER_VERSION,
     _name_matches,
     _normalize_topic_key,
+    _resolve_display_identity,
     _slugify,
     build_ministry_dossier,
     build_mp_dossier,
@@ -177,6 +178,55 @@ class FindMpRecordsTests(unittest.TestCase):
             self.assertEqual(len(pairs), 1)
             self.assertIsNotNone(pairs[0][1])
             self.assertEqual(pairs[0][1]["label"], "DEFLECTED")
+
+
+class ResolveDisplayIdentityTests(unittest.TestCase):
+    """A joint question's co-askers must not pollute this MP's own tally."""
+
+    def test_co_asker_does_not_pollute_name_or_entity_id(self):
+        pairs = [
+            (
+                {
+                    "asker_entity_ids": ["PERSON_target", "PERSON_co_asker"],
+                    "asker_details": [
+                        {"name": "Aarav Sharma"},
+                        {"name": "Prolific CoAsker"},
+                    ],
+                    "askers": ["Aarav Sharma", "Prolific CoAsker"],
+                },
+                None,
+            )
+            for _ in range(3)
+        ] + [
+            (
+                {
+                    "asker_entity_ids": ["PERSON_target"],
+                    "asker_details": [{"name": "Smt. Aarav Sharma"}],
+                    "askers": ["Smt. Aarav Sharma"],
+                },
+                None,
+            )
+        ]
+        name, eid = _resolve_display_identity(pairs, entity_id="PERSON_target")
+        self.assertEqual(eid, "PERSON_target")
+        self.assertEqual(name, "Aarav Sharma")
+
+    def test_name_fallback_matches_only_the_target_asker(self):
+        pairs = [
+            (
+                {
+                    "asker_details": [
+                        {"name": "Aarav Sharma"},
+                        {"name": "Someone Else"},
+                    ],
+                    "askers": ["Aarav Sharma", "Someone Else"],
+                },
+                None,
+            ),
+        ]
+        name, eid = _resolve_display_identity(pairs, name="Sharma")
+        self.assertEqual(name, "Aarav Sharma")
+        self.assertIsNone(eid)
 
     def test_neither_id_nor_name_raises(self):
         with tempfile.TemporaryDirectory() as tmp:

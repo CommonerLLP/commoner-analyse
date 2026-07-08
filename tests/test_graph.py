@@ -214,6 +214,25 @@ class LoadClassificationsTests(unittest.TestCase):
             self.assertEqual(count, 1)
             self.assertEqual(row[0], "FEDERAL_DEFLECTION")
 
+    def test_repeated_load_does_not_duplicate_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            _write_jsonl(out / "analysis_discourse.jsonl", [
+                {"record_key": "RS|q|1", "label": "FEDERAL_DEFLECTION",
+                 "classifier": "discourse_regex_v2", "confidence": 1.0,
+                 "audit_description": "dodge", "channel": "written"},
+            ])
+            conn = sqlite3.connect(str(out / "g.db"))
+            init_db(conn)
+            _load_classifications(conn, out)
+            _load_classifications(conn, out)
+            conn.commit()
+            rows = conn.execute(
+                "SELECT * FROM classifications WHERE record_key='RS|q|1'"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 1)
+
 
 class LoadAtrLinkagesTests(unittest.TestCase):
 
@@ -238,6 +257,50 @@ class LoadAtrLinkagesTests(unittest.TestCase):
             conn.close()
             self.assertEqual(count, 1)
             self.assertEqual(row[0], "RS|education|366")
+
+    def test_repeated_load_does_not_duplicate_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            _write_jsonl(out / "atr_linkage.jsonl", [
+                {"key": "RS|education|374", "references_report_no": "366",
+                 "references_report_key": "RS|education|366"},
+            ])
+            conn = sqlite3.connect(str(out / "g.db"))
+            init_db(conn)
+            _load_atr_linkages(conn, out)
+            _load_atr_linkages(conn, out)
+            conn.commit()
+            rows = conn.execute(
+                "SELECT * FROM atr_linkages WHERE atr_record_key='RS|education|374'"
+            ).fetchall()
+            conn.close()
+            self.assertEqual(len(rows), 1)
+
+
+class ClearDerivedTablesTests(unittest.TestCase):
+
+    def test_removed_record_does_not_survive_rebuild(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            _write_jsonl(out / "answers.jsonl", [
+                {"key": "RS|q|1", "session_no": 263, "house": "rs"},
+                {"key": "RS|q|2", "session_no": 263, "house": "rs"},
+            ])
+            db = build_graph(out, log_fn=lambda _: None)
+            conn = sqlite3.connect(str(db))
+            count = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
+            conn.close()
+            self.assertEqual(count, 2)
+
+            # RS|q|2 is removed from the corpus; a rebuild must drop it too.
+            _write_jsonl(out / "answers.jsonl", [
+                {"key": "RS|q|1", "session_no": 263, "house": "rs"},
+            ])
+            build_graph(out, log_fn=lambda _: None)
+            conn = sqlite3.connect(str(db))
+            rows = {r[0] for r in conn.execute("SELECT record_key FROM questions").fetchall()}
+            conn.close()
+            self.assertEqual(rows, {"RS|q|1"})
 
 
 if __name__ == "__main__":

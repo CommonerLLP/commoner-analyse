@@ -269,6 +269,11 @@ def analyse_ministry_cmd(args: argparse.Namespace) -> None:
     out = Path(args.out)
     if not (out / "manifest.jsonl").exists():
         raise SystemExit(f"no manifest at {out}/manifest.jsonl — run 'crawl' / 'crawl-committees' first")
+    if not (out / "analysis_discourse.jsonl").exists():
+        raise SystemExit(
+            f"no analysis_discourse.jsonl at {out}/analysis_discourse.jsonl — "
+            f"run 'analyse-discourse' first"
+        )
     topic_path = Path(args.topic) if args.topic else None
     write_ministry_summary(out, topic_profile_path=topic_path, log_fn=print)
 

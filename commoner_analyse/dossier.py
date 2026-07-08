@@ -18,20 +18,16 @@ from __future__ import annotations
 
 import hashlib
 import calendar
-import ipaddress
 import json
-import os
 import re
-import socket
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib import request as _url_request
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+
+from . import llm_client
 
 DOSSIER_VERSION = "mp_dossier_v1"
 QUESTION_REFINE_VERSION = "question_refine_v1"
@@ -216,7 +212,6 @@ _DATE_BEFORE_RE = re.compile(
     re.IGNORECASE,
 )
 
-_MINISTRY_QUERY_ALLOWED_SCHEMES = frozenset({"http", "https"})
 _MINISTRY_QUERY_LLM_SYSTEM_PROMPT = (
     "You extract structured facets from a parliamentary query.\n"
     "Return JSON only with these keys:\n"
@@ -340,121 +335,11 @@ def _strip_spans(text: str, spans: list[tuple[int, int]]) -> str:
     return re.sub(r"\s{2,}", " ", "".join(out)).strip(" ,;:-")
 
 
-def _validate_ministry_query_endpoint(endpoint: str, *, allow_private: bool = True) -> None:
-    parts = urlsplit(endpoint)
-    if parts.scheme not in _MINISTRY_QUERY_ALLOWED_SCHEMES:
-        raise ValueError(
-            f"LLM endpoint scheme must be one of {sorted(_MINISTRY_QUERY_ALLOWED_SCHEMES)}; "
-            f"got {parts.scheme!r}"
-        )
-    if not parts.hostname:
-        raise ValueError("LLM endpoint URL has no hostname")
-    if allow_private:
-        return
-    host = parts.hostname
-    try:
-        ip_literal = ipaddress.ip_address(host)
-    except ValueError:
-        ip_literal = None
-    if ip_literal is not None:
-        if (
-            ip_literal.is_private
-            or ip_literal.is_loopback
-            or ip_literal.is_link_local
-            or ip_literal.is_multicast
-            or ip_literal.is_reserved
-            or ip_literal.is_unspecified
-        ):
-            raise ValueError(
-                "LLM endpoint host is private/loopback; pass allow_private=True if intentional."
-            )
-        return
-    if host in {"localhost", "ip6-localhost", "ip6-loopback"}:
-        raise ValueError(
-            "LLM endpoint host is loopback; pass allow_private=True if intentional."
-        )
-    try:
-        resolved = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        raise ValueError(
-            f"LLM endpoint host could not be resolved: {type(exc).__name__}"
-        ) from exc
-    for _family, _kind, _proto, _name, sockaddr in resolved:
-        addr_str = sockaddr[0]
-        try:
-            addr = ipaddress.ip_address(addr_str)
-        except ValueError as exc:
-            raise ValueError(
-                "LLM endpoint host resolved to an unrecognised address; refusing to dispatch."
-            ) from exc
-        if (
-            addr.is_private
-            or addr.is_loopback
-            or addr.is_link_local
-            or addr.is_multicast
-            or addr.is_reserved
-            or addr.is_unspecified
-        ):
-            raise ValueError(
-                "LLM endpoint host is private/loopback; pass allow_private=True if intentional."
-            )
-
-
-def _resolve_ministry_query_api_key(api_key: str | None) -> str | None:
-    if not api_key:
-        return None
-    if api_key.startswith("env:"):
-        return os.environ.get(api_key[4:])
-    return api_key
-
-
-def _ministry_query_http_post(
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    timeout_s: float,
-    api_key: str | None = None,
-    allow_private: bool = True,
-) -> str:
-    _validate_ministry_query_endpoint(endpoint, allow_private=allow_private)
-    base = endpoint.rstrip("/")
-    url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    resolved_key = _resolve_ministry_query_api_key(api_key)
-    if resolved_key:
-        headers["Authorization"] = f"Bearer {resolved_key}"
-    req = _url_request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with _url_request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["choices"][0]["message"].get("content") or "{}"
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise RuntimeError(f"LLM endpoint unreachable: {type(exc).__name__}") from exc
-
-
-def _parse_llm_json(content: str) -> dict[str, Any]:
-    decoder = json.JSONDecoder()
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        for start in range(len(content)):
-            if content[start] != "{":
-                continue
-            try:
-                obj, _end = decoder.raw_decode(content[start:])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(obj, dict):
-                return obj
-        raise
+# Endpoint validation, SSRF guard, HTTP POST, and JSON parsing for the
+# Ollama-compatible LLM tier live in llm_client.py, shared with
+# discourse.py's LLM-tier classifier (same protocol, same safety
+# requirements). See ``llm_client.validate_llm_endpoint`` /
+# ``llm_client.llm_http_post`` / ``llm_client.parse_llm_json``.
 
 
 def _canonicalize_ministry_name(value: object) -> str | None:
@@ -783,7 +668,7 @@ def parse_ministry_query(
             "temperature": 0,
         }
         if _http_post is None:
-            raw_content = _ministry_query_http_post(
+            raw_content = llm_client.llm_http_post(
                 endpoint,
                 payload,
                 timeout_s=timeout_s,
@@ -798,7 +683,7 @@ def parse_ministry_query(
                 api_key=api_key,
                 allow_private=allow_private,
             )
-        llm_payload = _parse_llm_json(raw_content)
+        llm_payload = llm_client.parse_llm_json(raw_content)
         llm_parsed = _coerce_llm_ministry_query(text, llm_payload)
     except Exception:
         return parsed
@@ -1440,25 +1325,47 @@ def build_question_refinement(
 
 def _resolve_display_identity(
     pairs: list[tuple[dict, dict | None]],
+    *,
+    entity_id: str | None = None,
+    name: str | None = None,
 ) -> tuple[str, str | None]:
     """Pick a canonical display name + entity_id from the matched records.
 
     Different records may carry different forms of the name ("Shri X",
-    "Smt. X", bare "X"). Pick the most common form. Returns
-    (display_name, entity_id_or_None).
+    "Smt. X", bare "X"). Pick the most common form among only the asker
+    slot that actually matches ``entity_id``/``name`` on each record — a
+    joint question can list several askers, and a co-asker's name or
+    entity_id must not pollute this MP's own tally. Mirrors the matching
+    logic in ``find_mp_records``. Returns (display_name, entity_id_or_None).
     """
     name_counter: Counter = Counter()
     eid_counter: Counter = Counter()
     for manifest, _ in pairs:
-        for d in manifest.get("asker_details") or []:
-            if isinstance(d, dict) and d.get("name"):
-                name_counter[d["name"]] += 1
-        for eid in manifest.get("asker_entity_ids") or []:
-            if eid:
-                eid_counter[eid] += 1
-    name = name_counter.most_common(1)[0][0] if name_counter else "(unknown)"
-    eid = eid_counter.most_common(1)[0][0] if eid_counter else None
-    return name, eid
+        details = manifest.get("asker_details") or []
+        eids = manifest.get("asker_entity_ids") or []
+        plain_names = manifest.get("askers") or []
+        matched_any = False
+        for idx, d in enumerate(details):
+            d_name = d.get("name") if isinstance(d, dict) else None
+            d_eid = eids[idx] if idx < len(eids) else None
+            if entity_id:
+                if d_eid != entity_id:
+                    continue
+            elif name:
+                if not (d_name and _name_matches(name, d_name)):
+                    continue
+            matched_any = True
+            if d_name:
+                name_counter[d_name] += 1
+            if d_eid:
+                eid_counter[d_eid] += 1
+        if not matched_any and name:
+            for n in plain_names:
+                if _name_matches(name, str(n)):
+                    name_counter[str(n)] += 1
+    resolved_name = name_counter.most_common(1)[0][0] if name_counter else "(unknown)"
+    resolved_eid = eid_counter.most_common(1)[0][0] if eid_counter else None
+    return resolved_name, resolved_eid
 
 
 def _resolve_ministry_identity(
@@ -1905,7 +1812,7 @@ def build_mp_dossier(
     if not pairs:
         log_fn(f"mp-dossier: no records found for entity_id={entity_id!r} name={name!r}")
         return None
-    display_name, found_eid = _resolve_display_identity(pairs)
+    display_name, found_eid = _resolve_display_identity(pairs, entity_id=entity_id, name=name)
     md = _render_dossier(
         display_name,
         found_eid or entity_id,

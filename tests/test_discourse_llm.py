@@ -29,8 +29,8 @@ from commoner_analyse.discourse import (
     LLM_CLASSIFIER_VERSION,
     analyse_discourse,
     classify_response_llm,
-    _discourse_http_post,
 )
+from commoner_analyse.llm_client import llm_http_post as _discourse_http_post
 
 
 # ---------------------------------------------------------------------------
