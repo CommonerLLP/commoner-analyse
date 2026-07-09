@@ -36,6 +36,7 @@ def build_classifier(
             api_key=raw.get("api_key"),
             temperature=float(raw.get("temperature", 0.0)),
             timeout_s=float(raw.get("timeout_s", 30.0)),
+            allow_private=bool(raw.get("allow_private", True)),
         )
     if mode == "ensemble":
         members = [

@@ -13,6 +13,13 @@ researchers who pin a tag and want to know what they are pinning to.
 
 ### Fixed
 
+- **Topic classifier's `llm` mode (`classifiers/llm.py`) had no SSRF guard.**
+  Unlike the discourse-tier and ministry-query LLM paths, its endpoint POST
+  accepted any URL unchecked and used the old greedy-regex JSON fallback.
+  Now routes through `llm_client.py`; a topic profile's `classifier` block
+  can set `"allow_private": false` to reject loopback/private/link-local
+  hosts, matching the other two paths.
+
 - **`graph.py` classifications/atr_linkages could accumulate duplicate rows.**
   Neither table had a unique constraint on its record-key column, so
   `INSERT OR REPLACE` degraded to a plain insert on rebuild; a changed corpus

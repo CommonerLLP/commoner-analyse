@@ -188,9 +188,9 @@ python -m commoner_analyse parse \
 `llm_client.py` is the single implementation of SSRF-guarded endpoint
 validation, API-key resolution (`env:VAR_NAME` indirection), the
 Ollama-compatible `/chat/completions` POST, and tolerant JSON-from-LLM
-parsing. `discourse.py`'s LLM tier and `dossier.py`'s ministry-query
-refinement both call it — see `SECURITY.md` for the one classifier mode
-(`classifiers/llm.py`) that does not yet route through it.
+parsing. Every LLM call site routes through it: `discourse.py`'s LLM tier,
+`dossier.py`'s ministry-query refinement, and `classifiers/llm.py`'s topic
+classifier.
 
 ## Dependency boundary
 
