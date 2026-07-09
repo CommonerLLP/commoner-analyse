@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from typing import Any
-from urllib import request
-from urllib.error import HTTPError, URLError
 
+from .. import llm_client
 from .base import BaseClassifier, ClassifyResult
 
 
@@ -24,6 +22,7 @@ class LLMClassifier(BaseClassifier):
         api_key: str | None = None,
         temperature: float = 0.0,
         timeout_s: float = 30.0,
+        allow_private: bool = True,
         client: Any | None = None,
     ):
         if not tag_definitions:
@@ -35,6 +34,10 @@ class LLMClassifier(BaseClassifier):
         self.api_key = api_key or "local"
         self.temperature = float(temperature)
         self.timeout_s = float(timeout_s)
+        # Default True to preserve the zero-config local-Ollama path; set
+        # False (or "allow_private": false in the topic profile's
+        # classifier block) to reject loopback/private/link-local hosts.
+        self.allow_private = allow_private
         self.client = client
 
     def warmup(self) -> None:
@@ -78,14 +81,15 @@ class LLMClassifier(BaseClassifier):
                         {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
                     ],
                 }
-                content = _chat_completions_post(
+                content = llm_client.llm_http_post(
                     self.endpoint,
                     payload,
-                    api_key=self.api_key,
                     timeout_s=self.timeout_s,
+                    api_key=self.api_key,
+                    allow_private=self.allow_private,
                 )
             try:
-                parsed = _parse_jsonish(content)
+                parsed = llm_client.parse_llm_json(content)
             except Exception as exc:  # noqa: BLE001
                 tags = _fallback_tags(content, self.tag_definitions)
                 return ClassifyResult(
@@ -121,41 +125,6 @@ class LLMClassifier(BaseClassifier):
                 model=self.model,
                 elapsed_ms=(time.perf_counter() - start) * 1000,
             )
-
-
-def _chat_completions_post(endpoint: str, payload: dict[str, Any], *, api_key: str, timeout_s: float) -> str:
-    base = endpoint.rstrip("/")
-    url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
-    key = os.environ.get(api_key[4:]) if api_key.startswith("env:") else api_key
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    req = request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
-            raw = resp.read().decode("utf-8")
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise RuntimeError(f"Chat-completions request failed: {exc}") from exc
-    data = json.loads(raw)
-    return data["choices"][0]["message"].get("content") or "{}"
-
-
-def _parse_jsonish(content: str) -> dict[str, Any]:
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", content, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        raise
 
 
 def _fallback_tags(content: str, tag_definitions: dict[str, str]) -> list[str]:

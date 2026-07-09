@@ -1,5 +1,7 @@
+import json
 import tempfile
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -84,6 +86,69 @@ class ClassifierTests(unittest.TestCase):
         result = classifier.classify("Question about public libraries")
         self.assertEqual(result.tags, ["public_library"])
         self.assertIn("non-JSON", result.explain)
+
+    def test_llm_classifier_string_endpoint_path_goes_through_shared_http_layer(self):
+        # No `client=` — exercises the string-endpoint path, which must
+        # route through llm_client (the shared SSRF-guarded HTTP layer),
+        # not a local, unguarded implementation.
+        with mock.patch(
+            "commoner_analyse.classifiers.llm.llm_client.llm_http_post",
+            return_value=json.dumps(
+                {"tags": ["public_library"], "confidence": {"public_library": 0.7}}
+            ),
+        ) as mocked_post:
+            classifier = LLMClassifier(
+                endpoint="http://localhost:11434/v1",
+                model="fake-llm",
+                tag_definitions={"public_library": "Public library questions"},
+            )
+            result = classifier.classify("Question about public libraries")
+        self.assertEqual(result.tags, ["public_library"])
+        mocked_post.assert_called_once()
+        _, kwargs = mocked_post.call_args
+        self.assertEqual(kwargs["allow_private"], True)
+
+    def test_llm_classifier_rejects_non_http_endpoint(self):
+        # file:// must be rejected by the shared SSRF guard rather than
+        # silently read as a local file — same protection discourse.py's
+        # and dossier.py's LLM tiers already have.
+        classifier = LLMClassifier(
+            endpoint="file:///etc/passwd",
+            model="fake-llm",
+            tag_definitions={"public_library": "Public library questions"},
+        )
+        result = classifier.classify("Question about public libraries")
+        self.assertEqual(result.tags, [])
+        self.assertIn("LLM classification failed", result.explain)
+        # The categorical failure message must not leak the rejected path.
+        self.assertNotIn("/etc/passwd", result.explain)
+
+    def test_llm_classifier_allow_private_false_blocks_loopback(self):
+        classifier = LLMClassifier(
+            endpoint="http://127.0.0.1:11434/v1",
+            model="fake-llm",
+            tag_definitions={"public_library": "Public library questions"},
+            allow_private=False,
+        )
+        result = classifier.classify("Question about public libraries")
+        self.assertEqual(result.tags, [])
+        self.assertIn("private/loopback", result.explain)
+
+    def test_build_classifier_wires_allow_private_from_profile(self):
+        clf = build_classifier(
+            {"mode": "llm", "tag_definitions": {"x": "y"}, "allow_private": False},
+            tag_rules=(),
+            fallback_tag="topic_match",
+        )
+        self.assertFalse(clf.allow_private)
+
+    def test_build_classifier_allow_private_defaults_true(self):
+        clf = build_classifier(
+            {"mode": "llm", "tag_definitions": {"x": "y"}},
+            tag_rules=(),
+            fallback_tag="topic_match",
+        )
+        self.assertTrue(clf.allow_private)
 
     def test_ensemble_supports_union_intersection_and_weighted(self):
         rules_a = build_tag_rules([{"tag": "a", "patterns": ["alpha"]}])
