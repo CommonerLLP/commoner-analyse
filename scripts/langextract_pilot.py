@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -21,7 +22,7 @@ import langextract as lx
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = REPO_ROOT / "data" / "langextract-pilot"
 
-MODEL_ID = "qwen2.5:3b"
+MODEL_ID = os.environ.get("PILOT_MODEL", "qwen2.5:3b")
 MODEL_URL = "http://localhost:11434"
 
 PROMPT = """\
@@ -106,7 +107,7 @@ def main(pdf_paths: list[str]) -> None:
             iv = e.char_interval
             span = f"[{iv.start_pos}:{iv.end_pos}]" if iv else "[UNGROUNDED]"
             print(f"   {e.extraction_class:9s} {span:14s} {e.extraction_text!r} {e.attributes}")
-        stem = pdf.stem
+        stem = f"{pdf.stem}-{MODEL_ID.replace(':', '-')}"
         lx.io.save_annotated_documents(
             [result], output_name=f"{stem}.jsonl", output_dir=str(OUT_DIR)
         )
