@@ -11,6 +11,23 @@ researchers who pin a tag and want to know what they are pinning to.
 
 ## [Unreleased]
 
+## [2.8.3] — 2026-11-16
+
+### Changed
+
+- **`commoner-probe` pin moves `0.20.0` to `0.26.0`.** No surface of this
+  package changes. The bump lets downstream consumers that pin
+  `commoner-probe` directly take `0.26.0` without hitting
+  `ResolutionImpossible` against this package's exact pin.
+
+  Between `0.20.0` and `0.26.0`, probe moved Rajya Sabha committee reports to
+  the integration endpoint
+  (`integration.rajyasabha.digital/committee-integration/api/v1/web/committee-reports`),
+  which wraps each page in `{"success", "data", "message"}`. This package's
+  committee crawl inherits that change unchanged. Its test fakes now route the
+  new endpoint and its wrapper (`tests/test_committees.py`,
+  `tests/test_smoke_fixture.py`). No production code changes.
+
 ## [2.8.2] — 2026-09-05
 
 ### Changed

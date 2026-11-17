@@ -54,6 +54,11 @@ class FakeResponse:
         yield b""
 
 
+# commoner-probe >= 0.21 reads Rajya Sabha committee reports from the
+# integration endpoint, which wraps each page in {"success", "data", "message"}.
+RS_ROUTE = "committee-integration/api/v1/web/committee-reports"
+
+
 class FakeSession:
     """Returns canned responses keyed by URL substring match."""
 
@@ -288,7 +293,7 @@ class CrawlIntegrationTests(unittest.TestCase):
             "records": [_rs_record(174), _rs_record(173)],
         }
         with tempfile.TemporaryDirectory() as tmp:
-            crawler = self._crawler(tmp, {"api_rs/committee": page1})
+            crawler = self._crawler(tmp, {RS_ROUTE: {"success": True, "data": page1}})
             added = crawler.crawl_rs(
                 set(),
                 committees=["health"],
